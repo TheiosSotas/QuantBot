@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cryptorio 5.0 | Binance Futures Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #070a10;
+      --bg-card: #0f1420;
+      --bg-card-alt: #131929;
+      --border-color: #1a2336;
+      --neon-cyan: #00f0ff;
+      --neon-green: #00e676;
+      --neon-red: #ff3366;
+      --neon-gold: #ffb300;
+      --neon-purple: #c084fc;
+      --text-main: #f8fafc;
+      --text-muted: #8391a7;
+      --font-ui: 'Space Grotesk', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-ui);
+      padding: 16px;
+      line-height: 1.4;
+      overflow-x: hidden;
+    }
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 20px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      margin-bottom: 16px;
+    }
+    .logo-area { display: flex; align-items: center; gap: 12px; }
+    .logo-badge {
+      background: linear-gradient(135deg, #00f0ff 0%, #3b82f6 100%);
+      color: #000;
+      font-weight: 800;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      letter-spacing: 0.05em;
+    }
+    .pulse-dot {
+      width: 8px; height: 8px;
+      background: var(--neon-green);
+      border-radius: 50%;
+      box-shadow: 0 0 10px var(--neon-green);
+      animation: pulse 1.8s infinite;
+    }
+    @keyframes pulse { 0% { opacity: 0.3; } 50% { opacity: 1; } 100% { opacity: 0.3; } }
+    .top-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .kpi-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 14px 18px;
+    }
+    .kpi-title { font-size: 11px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.08em; font-weight: 600; }
+    .kpi-val { font-size: 24px; font-weight: 700; font-family: var(--font-mono); margin-top: 4px; }
+    .layout-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 1200px) { .layout-grid { grid-template-columns: 1fr; } }
+    .panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-color);
+    }
+    .panel-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+    .chart-box {
+      width: 100%;
+      height: 480px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0b0f19;
+    }
+    .copilot-stream {
+      height: 340px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding-right: 6px;
+    }
+    .copilot-stream::-webkit-scrollbar { width: 5px; }
+    .copilot-stream::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 4px; }
+    .chat-bubble {
+      background: var(--bg-card-alt);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+    .chat-meta {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .tag-analysis { color: var(--neon-cyan); }
+    .tag-guardrail { color: var(--neon-gold); font-weight: 700; }
+    .tag-long_entry { color: var(--neon-green); font-weight: 700; }
+    .tag-short_entry { color: var(--neon-red); font-weight: 700; }
+    .tag-pyramid_scale { color: var(--neon-purple); font-weight: 700; }
+    .tag-trade_exit { color: #f43f5e; font-weight: 700; }
+    .tag-learning { color: #e879f9; font-weight: 700; }
+    .telemetry-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 13px;
+    }
+    .telemetry-row:last-child { border-bottom: none; }
+    .shield-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+    }
+    .shield-safe { background: rgba(0, 230, 118, 0.15); color: var(--neon-green); border: 1px solid var(--neon-green); }
+    .shield-wait { background: rgba(255, 179, 0, 0.12); color: var(--neon-gold); border: 1px solid var(--neon-gold); }
+    .badge {
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      text-transform: uppercase;
+    }
+    .badge-long { background: rgba(0,230,118,0.15); color: var(--neon-green); border: 1px solid var(--neon-green); }
+    .badge-short { background: rgba(255,51,102,0.15); color: var(--neon-red); border: 1px solid var(--neon-red); }
+    .badge-flat { background: rgba(255,179,0,0.15); color: var(--neon-gold); border: 1px solid var(--neon-gold); }
+    .lesson-item {
+      background: #161226;
+      border-left: 3px solid var(--neon-purple);
+      border-radius: 0 6px 6px 0;
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      font-size: 12px;
+    }
+    table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+    th { text-align: left; padding: 10px; font-size: 11px; color: var(--text-muted); border-bottom: 1px solid var(--border-color); text-transform: uppercase; }
+    td { padding: 10px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .win { color: var(--neon-green); font-weight: 700; }
+    .loss { color: var(--neon-red); font-weight: 700; }
+    .mono { font-family: var(--font-mono); }
+  </style>
+</head>
+<body>
+
+  <div class="nav">
+    <div class="logo-area">
+      <div class="logo-badge">CRYPTORIO 5.0</div>
+      <div class="pulse-dot"></div>
+      <div style="font-size: 13px; font-weight: 600;">PAPER TRADING — BINANCE FUTURES (QWEN 2.5 14B)</div>
+    </div>
+    <div style="display: flex; gap: 16px; align-items: center;">
+      <span class="badge" style="background:#131c2e; color: var(--neon-cyan); border: 1px solid var(--border-color);" id="nav-pair">BTC/USDT PERP [1H]</span>
+      <span style="font-size: 12px; color: var(--text-muted); font-family: var(--font-mono);" id="nav-time">--:--:--</span>
+    </div>
+  </div>
+
+  <div id="health-banner" role="status" style="padding:12px;color:var(--neon-gold)">STARTING — PAPER TRADING</div>
+  <div class="top-row">
+    <div class="kpi-card">
+      <div class="kpi-title">Bitcoin Futures Last Trade</div>
+      <div class="kpi-val" style="color: #fff;" id="kpi-price">$0.00</div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Sampled last trade; simulated fills</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Paper Account Equity</div>
+      <div class="kpi-val" style="color: var(--neon-cyan);" id="kpi-equity">$10,000.00</div>
+      <div style="font-size: 11px; font-family: var(--font-mono); margin-top: 4px;" id="kpi-pnl">Unrealized: $0.00</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Active Market Direction</div>
+      <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+        <span class="badge badge-flat" id="kpi-side">FLAT</span>
+        <span class="mono" style="font-size: 14px; font-weight: 700;" id="kpi-tranches">0/3 Tranches</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;" id="kpi-regime">REGIME: CALIBRATING</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-title">Stop Protection Status</div>
+      <div style="margin-top: 6px;">
+        <span class="shield-badge shield-wait" id="kpi-shield">STANDBY (FLAT)</span>
+      </div>
+      <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Entry-price stop is not a guarantee</div>
+    </div>
+  </div>
+
+  <div class="layout-grid">
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Institutional Candlestick Chart (Binance Futures)</span>
+          <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">Real-Time Perp Feed</span>
+        </div>
+        <div class="chart-box">
+          <iframe
+            src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_widget&symbol=BINANCE%3ABTCUSDT.P&interval=60&hidesidetoolbar=0&symboledit=1&saveimage=1&toolbarbg=0f1420&studies=%5B%22RSI%40tv-basicstudies%22%2C%22MASimple%40tv-basicstudies%22%5D&theme=dark&style=1&timezone=Etc%2FUTC&overrides=%7B%22mainSeriesProperties.candleStyle.upColor%22%3A%22%2300e676%22%2C%22mainSeriesProperties.candleStyle.downColor%22%3A%22%23ff3366%22%7D&locale=en"
+            style="width: 100%; height: 100%; border: none;">
+          </iframe>
+        </div>
+      </div>
+
+      <div class="panel" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div>
+          <div class="panel-title" style="margin-bottom: 8px;">Futures Position Guardrails</div>
+          <div class="telemetry-row"><span>Position Size:</span><span class="mono" id="tel-units">0.0000 BTC</span></div>
+          <div class="telemetry-row"><span>Blended Entry:</span><span class="mono" id="tel-entry">$0.00</span></div>
+          <div class="telemetry-row"><span>Stop-Loss Level:</span><span class="mono" style="color: var(--neon-red);" id="tel-sl">$0.00</span></div>
+          <div class="telemetry-row"><span>Take-Profit Target:</span><span class="mono" style="color: var(--neon-green);" id="tel-tp">$0.00</span></div>
+          <div class="telemetry-row"><span>50% Breakeven Point:</span><span class="mono" style="color: var(--neon-gold);" id="tel-be">$0.00</span></div>
+        </div>
+        <div>
+          <div class="panel-title" style="margin-bottom: 8px;">Quant Momentum Metrics</div>
+          <div class="telemetry-row"><span>RSI (14-Period):</span><span class="mono" style="font-weight: 700;" id="tel-rsi">50.0</span></div>
+          <div class="telemetry-row"><span>20 Exponential MA:</span><span class="mono" id="tel-ema20">$0.00</span></div>
+          <div class="telemetry-row"><span>50 Exponential MA:</span><span class="mono" id="tel-ema50">$0.00</span></div>
+          <div class="telemetry-row"><span>200 Exponential MA:</span><span class="mono" id="tel-ema200">$0.00</span></div>
+          <div class="telemetry-row"><span>ATR Volatility (14):</span><span class="mono" id="tel-atr">$0.00</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div class="panel" style="flex: 1;">
+        <div class="panel-header">
+          <span class="panel-title">Qwen 2.5 Analysis (Paper Trading)</span>
+          <span class="badge" style="background: rgba(0,240,255,0.1); color: var(--neon-cyan); border: 1px solid var(--neon-cyan);">CLOSED-CANDLE ANALYSIS</span>
+        </div>
+        <div class="copilot-stream" id="copilot-box">
+          <div class="chat-bubble">
+            <div class="chat-meta"><span class="tag-analysis">ANALYSIS</span><span>Just now</span></div>
+            <div>Awaiting initial inference loop from local GPU...</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <span class="panel-title">Post-Mortem Research Suggestions</span>
+          <span style="font-size: 11px; color: var(--neon-purple); font-weight: 700;">NOT AUTOMATIC RULES</span>
+        </div>
+        <div id="lessons-box" style="max-height: 200px; overflow-y: auto;">
+          <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">Suggestions are stored for review and never change trading rules automatically.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Futures Master Execution Ledger</span>
+      <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">SQLite state and fills; trades.csv is an export</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Timestamp</th>
+          <th>Side</th>
+          <th>Trigger Event</th>
+          <th>Entry</th>
+          <th>Exit</th>
+          <th>Units</th>
+          <th>PnL (USDT)</th>
+          <th>Price Return %</th>
+          <th>Result</th>
+        </tr>
+      </thead>
+      <tbody id="trade-table" class="mono">
+        <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 16px;">No closed trades logged yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    function esc(value) {
+      return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+    async function syncTerminal() {
+      try {
+        const res = await fetch('/api/state');
+        if (!res.ok) return;
+        const data = await res.json();
+
+        document.getElementById('nav-time').innerText = data.system.last_update;
+        document.getElementById('kpi-price').innerText = "$" + data.market.price.toLocaleString('en-US', {minimumFractionDigits: 2});
+        document.getElementById('kpi-equity').innerText = "$" + data.portfolio.total_equity.toLocaleString('en-US', {minimumFractionDigits: 2});
+
+        document.getElementById('health-banner').textContent =
+          data.system.status + ' | AI: ' + data.system.model_status +
+          ' | Protection checked: ' + (data.system.last_protection_at ? new Date(data.system.last_protection_at * 1000).toLocaleTimeString() : 'waiting') +
+          (data.system.error ? ' | ' + data.system.error : '') +
+          (data.system.model_error ? ' | AI error: ' + data.system.model_error : '') +
+          (data.system.csv_warning ? ' | CSV warning: ' + data.system.csv_warning : '');
+        const unPnl = data.portfolio.unrealized_pnl;
+        const pnlEl = document.getElementById('kpi-pnl');
+        pnlEl.innerText = "Unrealized: " + (unPnl >= 0 ? "+" : "") + unPnl.toFixed(2) + " USDT";
+        pnlEl.style.color = unPnl >= 0 ? "var(--neon-green)" : "var(--neon-red)";
+
+        const sideEl = document.getElementById('kpi-side');
+        sideEl.innerText = data.portfolio.side;
+        sideEl.className = 'badge ' + (data.portfolio.side === 'LONG' ? 'badge-long' : (data.portfolio.side === 'SHORT' ? 'badge-short' : 'badge-flat'));
+        document.getElementById('kpi-tranches').innerText = data.portfolio.tranches + "/3 Tranches";
+        document.getElementById('kpi-regime').innerText = "REGIME: " + data.model.regime;
+
+        const shieldEl = document.getElementById('kpi-shield');
+        if (data.portfolio.side !== "FLAT") {
+          if (data.portfolio.breakeven_active) {
+            shieldEl.className = 'shield-badge shield-safe';
+            shieldEl.innerText = 'STOP AT/BEYOND ENTRY';
+          } else {
+            shieldEl.className = 'shield-badge shield-wait';
+            shieldEl.innerText = 'INITIAL STOP ACTIVE';
+          }
+        } else {
+          shieldEl.className = 'shield-badge shield-wait';
+          shieldEl.innerText = 'STANDBY (FLAT)';
+        }
+
+        const entry = data.portfolio.entry_price;
+        const tp = data.portfolio.take_profit;
+        let beLevel = 0;
+        if (entry > 0 && tp > 0) {
+          beLevel = data.portfolio.side === "LONG" ? (entry + 0.5 * (tp - entry)) : (entry - 0.5 * (entry - tp));
+        }
+
+        document.getElementById('tel-units').innerText = data.portfolio.position_units.toFixed(4) + " BTC";
+        document.getElementById('tel-entry').innerText = "$" + entry.toLocaleString();
+        document.getElementById('tel-sl').innerText = "$" + data.portfolio.stop_loss.toLocaleString();
+        document.getElementById('tel-tp').innerText = "$" + tp.toLocaleString();
+        document.getElementById('tel-be').innerText = "$" + beLevel.toLocaleString();
+
+        document.getElementById('tel-rsi').innerText = data.market.rsi_14;
+        document.getElementById('tel-ema20').innerText = "$" + data.market.ema_20.toLocaleString();
+        document.getElementById('tel-ema50').innerText = "$" + data.market.ema_50.toLocaleString();
+        document.getElementById('tel-ema200').innerText = "$" + data.market.ema_200.toLocaleString();
+        document.getElementById('tel-atr').innerText = "$" + data.market.atr_14.toLocaleString();
+
+        if (data.copilot_feed && data.copilot_feed.length > 0) {
+          const feedBox = document.getElementById('copilot-box');
+          feedBox.innerHTML = data.copilot_feed.map(item => `
+            <div class="chat-bubble">
+              <div class="chat-meta">
+                <span class="tag-${esc(item.category.toLowerCase())}">${esc(item.category)}</span>
+                <span>${esc(item.time)}</span>
+              </div>
+              <div style="color: #e2e8f0;">${esc(item.message)}</div>
+            </div>
+          `).join('');
+        }
+
+        if (data.lessons && data.lessons.length > 0) {
+          const lBox = document.getElementById('lessons-box');
+          lBox.innerHTML = data.lessons.map(l => `
+            <div class="lesson-item">
+              <div style="font-weight: 700; color: #f472b6; margin-bottom: 2px;">AUDIT [${esc(l.date)}]: Loss ${esc(l.pnl)} USDT (${esc(l.side)})</div>
+              <div style="color: #cbd5e1; margin-bottom: 4px;"><b>Hypothesis:</b> ${esc(l.root_cause)}</div>
+              <div style="color: var(--neon-cyan);"><b>Proposal:</b> ${esc(l.preventative_rule)}</div>
+            </div>
+          `).join('');
+        }
+
+        if (data.trades && data.trades.length > 0) {
+          const tbody = document.getElementById('trade-table');
+          tbody.innerHTML = data.trades.map(t => `
+            <tr>
+              <td>${esc(t.time)}</td>
+              <td><span class="badge ${t.side === 'LONG' ? 'badge-long' : 'badge-short'}">${esc(t.side)}</span></td>
+              <td><span class="badge ${t.result === 'WIN' ? 'badge-long' : (t.result === 'BREAKEVEN' ? 'badge-flat' : 'badge-short')}">${esc(t.type)}</span></td>
+              <td>$${t.entry.toLocaleString()}</td>
+              <td>$${t.exit.toLocaleString()}</td>
+              <td>${esc(t.units)}</td>
+              <td class="${t.result === 'WIN' ? 'win' : (t.result === 'BREAKEVEN' ? 'mono' : 'loss')}">${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)}</td>
+              <td class="${t.result === 'WIN' ? 'win' : (t.result === 'BREAKEVEN' ? 'mono' : 'loss')}">${t.return_pct >= 0 ? '+' : ''}${t.return_pct.toFixed(2)}%</td>
+              <td class="${t.result === 'WIN' ? 'win' : (t.result === 'BREAKEVEN' ? 'mono' : 'loss')}">${esc(t.result)}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) {
+        console.error("Dashboard sync error:", err);
+      }
+    }
+
+    setInterval(syncTerminal, 3000);
+    syncTerminal();
+  </script>
+</body>
+</html>
