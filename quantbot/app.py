@@ -30,8 +30,29 @@ class Runner:
             # Only a bounded, latest research request; no rule edits or extra exposure.
             self.pending_lesson = Job("LESSON", snapshot, {}, self.clock(), 0, trade)
 
+    def _audit_failure(self, result, reason, quote, *, latest_candle=None, detail=""):
+        self.engine.audit_rejection(
+            reason,
+            now=self.clock(),
+            requested_at=result.job.requested_at,
+            snapshot=result.job.snapshot,
+            quote=quote,
+            revision=result.job.revision,
+            latest_candle=latest_candle,
+            detail=detail,
+        )
+
     def step(self):
-        quote = self.market.fetch_quote()
+        try:
+            quote = self.market.fetch_quote()
+        except Exception as exc:
+            self.engine.health(status="DATA_ERROR", error=str(exc))
+            for result in drain_results(self.worker):
+                if result.job.kind == "DECISION":
+                    self._audit_failure(result, "INVALID_MARKET_DATA", None, detail=str(exc))
+                elif not result.error:
+                    self.engine.add_lesson(result.value)
+            return
         self._remember_loss(self.engine.on_quote(quote, self.clock()), self.latest_snapshot)
         # Invalid indicators must never prevent the preceding independent stop check.
         try:
@@ -53,6 +74,8 @@ class Runner:
             for result in drain_results(self.worker):
                 if result.job.kind == "LESSON" and not result.error:
                     self.engine.add_lesson(result.value)
+                elif result.job.kind == "DECISION":
+                    self._audit_failure(result, "INVALID_MARKET_DATA", quote, detail=str(exc))
             return
         # Candle acquisition may take time; refresh if it consumed the quote's freshness budget.
         if self.clock() - quote.observed_at > self.config.max_quote_age:
@@ -62,6 +85,13 @@ class Runner:
             if result.error:
                 logging.warning("Model job failed: %s", result.error)
                 self.engine.health(model_status="ERROR", model_error=result.error)
+                if result.job.kind == "DECISION":
+                    reason = (
+                        "INVALID_MODEL_OUTPUT" if result.error.startswith("ValueError:") else "MODEL_ERROR"
+                    )
+                    self._audit_failure(
+                        result, reason, quote, latest_candle=snapshot.candle_id, detail=result.error
+                    )
                 continue
             if result.job.kind == "LESSON":
                 self.engine.add_lesson(result.value)
@@ -122,9 +152,42 @@ def main(argv=None):
     parser.add_argument("--data-dir", type=Path, default=Config().data_dir)
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--no-browser", action="store_true")
+    parser.add_argument(
+        "--daily-loss-limit",
+        type=float,
+        default=None,
+        help="Daily equity loss fraction, e.g. 0.03; disabled by default (UTC day).",
+    )
+    parser.add_argument(
+        "--max-account-drawdown",
+        type=float,
+        default=None,
+        help="Peak-equity drawdown fraction; disabled by default; triggered latch persists.",
+    )
+    parser.add_argument(
+        "--cooldown-seconds",
+        type=float,
+        default=0,
+        help="Pause entries/additions after a close; default 0 (disabled).",
+    )
+    parser.add_argument(
+        "--equity-sample-seconds",
+        type=float,
+        default=60,
+        help="Equity history interval; fills and protection transitions also force a sample.",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-    config = Config(data_dir=args.data_dir.resolve())
+    try:
+        config = Config(
+            data_dir=args.data_dir.resolve(),
+            daily_loss_limit=args.daily_loss_limit,
+            max_account_drawdown=args.max_account_drawdown,
+            cooldown_seconds=args.cooldown_seconds,
+            equity_sample_seconds=args.equity_sample_seconds,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     store = Store(config)
     engine = PaperEngine(config, store)
     worker = ModelWorker(ModelClient(config))

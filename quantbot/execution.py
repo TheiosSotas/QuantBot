@@ -5,7 +5,9 @@ import logging
 import threading
 from dataclasses import asdict
 
+from .audit import decision_event
 from .models import Decision, finite_number
+from .protections import entry_block_reason, register_close, update_protections
 from .risk import eligible, size_addition
 from .state import thought, timestamp
 
@@ -43,6 +45,91 @@ class PaperEngine:
                 # The authoritative commit already succeeded. Never repeat a fill for a CSV retry.
                 logging.warning("CSV export failed; SQLite state is intact: %s", exc)
                 self.state["system"]["csv_warning"] = str(exc)
+
+    def _equity_event(self, state, quote, now, events, *, force=False):
+        last = state["system"].get("last_equity_sample_at")
+        if not force and last is not None and now - last < self.config.equity_sample_seconds:
+            return
+        p, protection = state["portfolio"], state["protections"]
+        notional = p["position_units"] * quote.price
+        exposure = notional / p["total_equity"] if p["total_equity"] > 0 else 0.0
+        finite_number(exposure, "exposure")
+        events.append(
+            (
+                "EQUITY",
+                {
+                    "observed_at": now,
+                    "quote_at": quote.observed_at,
+                    "price": quote.price,
+                    "cash": p["cash_usdt"],
+                    "unrealized_pnl": p["unrealized_pnl"],
+                    "equity": p["total_equity"],
+                    "peak_equity": protection["peak_equity"],
+                    "drawdown": protection["current_drawdown"],
+                    "exposure": exposure,
+                    "side": p["side"],
+                    "notional": notional,
+                },
+            )
+        )
+        state["system"]["last_equity_sample_at"] = now
+
+    def _update_account(self, state, now):
+        # A backward OS clock blocks new risk but must never suppress a stop.
+        previous = state["protections"]["last_update_at"]
+        protection_time = max(now, previous) if previous is not None else now
+        update_protections(state, self.config, protection_time)
+        state["system"]["clock_rollback"] = protection_time > now
+        return protection_time
+
+    @staticmethod
+    def _protection_events(previous, candidate, now, events):
+        keys = ("session_date", "daily_loss_triggered_at", "max_drawdown_triggered_at", "cooldown_until")
+        current = candidate["protections"]
+        if any(previous.get(key) != current.get(key) for key in keys):
+            events.append(("PROTECTION", {"observed_at": now, "protections": copy.deepcopy(current)}))
+
+    def _record_outcome(
+        self, outcome, reason_code, context, *, candidate=None, events=None, status="REJECTED", detail=""
+    ):
+        with self.lock:
+            candidate = copy.deepcopy(self.state) if candidate is None else candidate
+            events = [] if events is None else events
+            audit = decision_event(
+                self.config, outcome=outcome, reason_code=reason_code, status=status, detail=detail, **context
+            )
+            events.append(("DECISION_AUDIT", audit))
+            candidate["system"]["last_decision_audit"] = {
+                key: audit[key] for key in ("observed_at", "action", "status", "reason_code", "outcome")
+            }
+            self._commit(candidate, events)
+            return outcome
+
+    def audit_rejection(
+        self,
+        reason_code,
+        *,
+        now,
+        requested_at=None,
+        snapshot=None,
+        quote=None,
+        revision=None,
+        latest_candle=None,
+        detail="",
+    ):
+        return self._record_outcome(
+            reason_code,
+            reason_code,
+            dict(
+                now=now,
+                requested_at=requested_at,
+                snapshot=snapshot,
+                quote=quote,
+                revision=revision,
+                latest_candle=latest_candle,
+            ),
+            detail=detail,
+        )
 
     @staticmethod
     def _mark(state, price):
@@ -95,6 +182,7 @@ class PaperEngine:
         with self.lock:
             candidate = copy.deepcopy(self.state)
             self._mark(candidate, quote.price)
+            protection_time = self._update_account(candidate, now)
             candidate["market"]["price"] = quote.price
             candidate["system"].update(
                 last_quote_at=quote.observed_at, last_protection_at=now, last_update=timestamp()
@@ -126,33 +214,62 @@ class PaperEngine:
                                 "GUARDRAIL",
                             )
                     p["breakeven_active"] = (p["stop_loss"] - p["entry_price"]) * sign >= -1e-8
-            if events or self.state["system"].get("storage_error"):
-                self._commit(candidate, events)
-            else:
-                self.state = candidate  # Tick-level marking needs no disk transaction.
+            if closed:
+                register_close(candidate, self.config, protection_time)
+            self._update_account(candidate, now)
+            candidate["system"]["entry_block_reason"] = entry_block_reason(candidate, self.config, now)
+            self._protection_events(self.state["protections"], candidate, now, events)
+            self._equity_event(candidate, quote, now, events, force=bool(events))
+            # One small transaction per valid quote preserves peak/day baselines
+            # across crashes; full history rows are sampled separately.
+            self._commit(candidate, events)
             return closed
 
     def apply_decision(self, raw_decision, snapshot, quote, *, now, requested_at, revision, latest_candle):
-        decision = Decision.parse(
-            asdict(raw_decision) if isinstance(raw_decision, Decision) else raw_decision
+        context = dict(
+            now=now,
+            requested_at=requested_at,
+            snapshot=snapshot,
+            quote=quote,
+            revision=revision,
+            latest_candle=latest_candle,
+            decision=raw_decision,
         )
-        snapshot.validate()
-        quote.validate(now, self.config.max_quote_age)
+        try:
+            quote.validate(now, self.config.max_quote_age)
+        except ValueError as exc:
+            self._record_outcome("INVALID_QUOTE", "STALE_PRICE", context, detail=exc)
+            raise
+        # A model failure/rejection must not prevent an already-breached exit.
+        closed = self.on_quote(quote, now)
+        try:
+            decision = Decision.parse(
+                asdict(raw_decision) if isinstance(raw_decision, Decision) else raw_decision
+            )
+        except ValueError as exc:
+            self._record_outcome("INVALID_MODEL_OUTPUT", "INVALID_MODEL_OUTPUT", context, detail=exc)
+            raise
+        context["decision"] = decision
+        try:
+            snapshot.validate()
+            finite_number(requested_at, "decision request timestamp", positive=True)
+        except ValueError as exc:
+            self._record_outcome("INVALID_MARKET_DATA", "INVALID_MARKET_DATA", context, detail=exc)
+            raise
         if not 0 <= now - requested_at <= self.config.max_decision_age:
-            return "STALE_DECISION"
+            return self._record_outcome("STALE_DECISION", "AI_DECISION_EXPIRED", context)
         if snapshot.candle_id != latest_candle:
-            return "STALE_CANDLE"
-        # Also protect direct callers: a delayed decision cannot skip a newly breached exit.
-        if self.on_quote(quote, now):
-            return "PROTECTIVE_EXIT"
+            return self._record_outcome("STALE_CANDLE", "STALE_CANDLE", context)
+        if closed:
+            return self._record_outcome("PROTECTIVE_EXIT", "PROTECTIVE_EXIT", context)
         with self.lock:
             if self.state["system"].get("storage_error"):
-                return "STORAGE_BLOCKED"
+                return self._record_outcome("STORAGE_BLOCKED", "STORAGE_BLOCKED", context)
             if revision != self.state["position_revision"]:
-                return "POSITION_CHANGED"
+                return self._record_outcome("POSITION_CHANGED", "POSITION_CHANGED", context)
             last = self.state["last_decision_candle"]
             if last is not None and snapshot.candle_id <= last:
-                return "ALREADY_EVALUATED"
+                return self._record_outcome("ALREADY_EVALUATED", "DUPLICATE_CANDLE", context)
             candidate = copy.deepcopy(self.state)
             candidate["last_decision_candle"] = snapshot.candle_id
             candidate["model"].update(
@@ -181,17 +298,26 @@ class PaperEngine:
                 )
             ]
             outcome = "HOLD"
+            reason = "NO_ACTION"
+            status = "NO_ACTION"
             opposite = "SELL" if p["side"] == "LONG" else "BUY"
             if p["side"] != "FLAT" and decision.action in ("CLOSE", opposite) and decision.confidence >= 0.75:
                 self._close(candidate, price, "MODEL_REVERSAL", events)
+                register_close(candidate, self.config, candidate["protections"]["last_update_at"])
                 outcome = "CLOSED"
+                reason, status = "MODEL_CLOSE", "ACCEPTED"
             elif p["side"] == "FLAT" and decision.action in ("BUY", "SELL") and decision.confidence >= 0.75:
                 side = "LONG" if decision.action == "BUY" else "SHORT"
-                if eligible(side, snapshot, price, decision.market_regime):
+                block = entry_block_reason(candidate, self.config, now)
+                reason, status = "STRATEGY_FILTER", "REJECTED"
+                if block:
+                    outcome, reason = block, block
+                elif eligible(side, snapshot, price, decision.market_regime):
                     sign = 1 if side == "LONG" else -1
                     stop = price - sign * 1.5 * snapshot.atr_14
                     target = price + sign * 1.5 * snapshot.atr_14 * self.config.reward_risk
                     units = size_addition(self.config, p, price, stop)
+                    reason = "RISK_BUDGET" if units <= 0 else "INVALID_TARGET"
                     if units > 0 and target > 0:
                         p.update(
                             side=side,
@@ -219,6 +345,7 @@ class PaperEngine:
                         )
                         thought(candidate, f"Paper {side}: {units} BTC at {price:.2f}", f"{side}_ENTRY")
                         outcome = "OPENED"
+                        reason, status = "ENTRY", "ACCEPTED"
             elif p["side"] != "FLAT":
                 sign = 1 if p["side"] == "LONG" else -1
                 same_action = "BUY" if sign == 1 else "SELL"
@@ -231,7 +358,14 @@ class PaperEngine:
                     and snapshot.volume_ratio > 1.25
                     and eligible(p["side"], snapshot, price, decision.market_regime)
                 )
-                if can_scale:
+                block = entry_block_reason(candidate, self.config, now)
+                if decision.scale_in_signal:
+                    reason, status = "SCALE_FILTER", "REJECTED"
+                    if p["tranches"] >= self.config.max_tranches:
+                        reason = "MAX_TRANCHES"
+                if decision.scale_in_signal and block:
+                    outcome, reason, status = block, block, "REJECTED"
+                elif can_scale:
                     # Use the current stop, including any breakeven update made on this quote.
                     stop = (
                         max(p["stop_loss"], price - 1.2 * snapshot.atr_14)
@@ -239,6 +373,7 @@ class PaperEngine:
                         else min(p["stop_loss"], price + 1.2 * snapshot.atr_14)
                     )
                     extra = size_addition(self.config, p, price, stop)
+                    reason = "RISK_BUDGET" if extra <= 0 else "INVALID_TARGET"
                     if extra > 0:
                         total = p["position_units"] + extra
                         blended = (p["entry_price"] * p["position_units"] + price * extra) / total
@@ -272,9 +407,21 @@ class PaperEngine:
                                 candidate, f"Added {extra} BTC; blended entry {blended:.2f}", "PYRAMID_SCALE"
                             )
                             outcome = "SCALED"
+                            reason, status = "SCALE", "ACCEPTED"
+                elif decision.action in ("CLOSE", opposite):
+                    reason, status = "LOW_CONFIDENCE", "REJECTED"
+            elif decision.action in ("BUY", "SELL"):
+                reason, status = "LOW_CONFIDENCE", "REJECTED"
+            elif decision.action == "CLOSE":
+                reason, status = "NO_POSITION", "REJECTED"
             self._mark(candidate, price)
-            self._commit(candidate, events)
-            return outcome
+            self._update_account(candidate, now)
+            candidate["system"]["entry_block_reason"] = entry_block_reason(candidate, self.config, now)
+            self._protection_events(self.state["protections"], candidate, now, events)
+            self._equity_event(candidate, quote, now, events, force=outcome in ("OPENED", "SCALED", "CLOSED"))
+            return self._record_outcome(
+                outcome, reason, context, candidate=candidate, events=events, status=status
+            )
 
     def add_lesson(self, lesson):
         with self.lock:

@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cryptorio 5.0 | Binance Futures Desk</title>
+  <link rel="icon" href="data:,">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <style>
@@ -81,6 +82,7 @@
     }
     @media (max-width: 1200px) { .layout-grid { grid-template-columns: 1fr; } }
     .panel {
+      min-width: 0;
       background: var(--bg-card);
       border: 1px solid var(--border-color);
       border-radius: 12px;
@@ -227,6 +229,21 @@
   </div>
 
   <div class="layout-grid">
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">Paper Account History</span><span id="history-status" class="mono">Waiting for samples</span></div>
+      <svg id="equity-chart" viewBox="0 0 640 140" role="img" aria-label="Recent sampled paper account equity" style="width:100%;height:140px"><text x="12" y="70" fill="#8391a7">Waiting for a fresh price</text></svg>
+      <div id="equity-range" style="font-size:12px;color:var(--text-muted)">Latest 200 samples; includes unrealized PnL. Full history stays in SQLite.</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">Account Entry Controls</span><span id="account-gate" class="shield-badge shield-wait">WAITING</span></div>
+      <div class="telemetry-row"><span>Daily equity loss (UTC):</span><span id="account-daily" class="mono">—</span></div>
+      <div class="telemetry-row"><span>Drawdown from account peak:</span><span id="account-dd" class="mono">—</span></div>
+      <div class="telemetry-row"><span>Cooldown until:</span><span id="account-cooldown" class="mono">Disabled</span></div>
+      <div style="font-size:12px;color:var(--text-muted);margin-top:8px">Entry controls block new exposure. Existing position exits remain active with fresh prices.</div>
+    </div>
+  </div>
+
+  <div class="layout-grid">
     <div style="display: flex; flex-direction: column; gap: 16px;">
       <div class="panel">
         <div class="panel-header">
@@ -287,7 +304,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" style="overflow-x:auto">
     <div class="panel-header">
       <span class="panel-title">Futures Master Execution Ledger</span>
       <span style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono);">SQLite state and fills; trades.csv is an export</span>
@@ -312,15 +329,63 @@
     </table>
   </div>
 
+  <div class="panel" style="margin-top:16px;overflow-x:auto">
+    <div class="panel-header"><span class="panel-title">Decision Audit</span><span style="font-size:12px;color:var(--text-muted)">Latest 20 decisions, including rejections</span></div>
+    <table><thead><tr><th>Time</th><th>Action</th><th>Status</th><th>Reason</th><th>Outcome</th></tr></thead><tbody id="decision-audit"><tr><td colspan="5">No decisions recorded yet.</td></tr></tbody></table>
+  </div>
+
   <script>
     function esc(value) {
       return String(value).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+    const pct = value => (value * 100).toFixed(2) + '%';
+    const limitText = value => value == null ? 'disabled' : pct(value);
+    async function syncHistory() {
+      try {
+        const response = await fetch('/api/history');
+        if (!response.ok) throw new Error('History unavailable');
+        const history = await response.json();
+        const rows = history.equity.filter(row => Number.isFinite(row.equity) && Number.isFinite(row.observed_at));
+        document.getElementById('history-status').textContent = rows.length + ' samples';
+        if (rows.length) {
+          const low = Math.min(...rows.map(row => row.equity));
+          const high = Math.max(...rows.map(row => row.equity));
+          const first = rows[0].observed_at;
+          const duration = rows[rows.length - 1].observed_at - first;
+          const points = rows.map(row => {
+            const x = duration > 0 ? 12 + (row.observed_at - first) / duration * 616 : 320;
+            const y = high === low ? 70 : 126 - (row.equity - low) / (high - low) * 112;
+            return x.toFixed(2) + ',' + y.toFixed(2);
+          }).join(' ');
+          const chart = document.getElementById('equity-chart');
+          chart.innerHTML = '<polyline fill="none" stroke="#00f0ff" stroke-width="2" points="' + points + '"/>';
+          if (rows.length === 1) chart.innerHTML += '<circle cx="320" cy="70" r="4" fill="#00f0ff"/>';
+          document.getElementById('equity-range').textContent =
+            '$' + low.toFixed(2) + ' – $' + high.toFixed(2) + ' | ' + new Date(first * 1000).toLocaleString() +
+            ' → ' + new Date(rows[rows.length - 1].observed_at * 1000).toLocaleString() + ' | Includes unrealized PnL';
+        }
+        if (history.decisions.length) document.getElementById('decision-audit').innerHTML =
+          history.decisions.slice().reverse().map(row => '<tr><td>' + esc(new Date(row.observed_at * 1000).toLocaleString()) +
+          '</td><td>' + esc(row.action ?? '—') + '</td><td>' + esc(row.status) + '</td><td>' +
+          esc(row.reason_code) + '</td><td>' + esc(row.outcome) + '</td></tr>').join('');
+      } catch (err) {
+        document.getElementById('history-status').textContent = 'History temporarily unavailable';
+      }
     }
     async function syncTerminal() {
       try {
         const res = await fetch('/api/state');
         if (!res.ok) return;
         const data = await res.json();
+        const controls = data.protections;
+        const limits = data.account_limits;
+        const gate = document.getElementById('account-gate');
+        gate.textContent = data.system.entry_block_reason || 'READY';
+        gate.className = 'shield-badge ' + (data.system.entry_block_reason ? 'shield-wait' : 'shield-safe');
+        document.getElementById('account-daily').textContent = pct(controls.daily_loss) + ' / ' + limitText(limits.daily_loss_limit);
+        document.getElementById('account-dd').textContent = pct(controls.current_drawdown) + ' / ' + limitText(limits.max_account_drawdown);
+        document.getElementById('account-cooldown').textContent = controls.cooldown_until && controls.cooldown_until > Date.now() / 1000
+          ? new Date(controls.cooldown_until * 1000).toLocaleString() : (limits.cooldown_seconds ? 'Ready' : 'Disabled');
 
         document.getElementById('nav-time').innerText = data.system.last_update;
         document.getElementById('kpi-price').innerText = "$" + data.market.price.toLocaleString('en-US', {minimumFractionDigits: 2});
@@ -422,7 +487,9 @@
     }
 
     setInterval(syncTerminal, 3000);
+    setInterval(syncHistory, 10000);
     syncTerminal();
+    syncHistory();
   </script>
 </body>
 </html>

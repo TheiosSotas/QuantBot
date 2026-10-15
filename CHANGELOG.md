@@ -1,4 +1,15 @@
-# Modular paper-trading corrections
+# Changelog
+
+## Account history, decision audit and persistent protections — 2026-10-15
+
+- Persisted sampled mark-to-market equity history, including unrealized PnL, account peak, drawdown and exposure; forced samples on fills and protection transitions.
+- Added configurable UTC daily-loss and peak-drawdown latches plus post-close cooldown. New limits default to disabled; existing position limits remain active. Latches survive restart/config changes; daily reset uses first fresh quote of a later UTC day, global latch does not auto-reset.
+- New-risk gates do not suppress stops/targets or eligible model closes. A backward OS clock blocks entries while preserving existing exits.
+- Added accepted/rejected/no-action decision audit, including stale/schema/model/data failures, stored atomically with state/fill/history events.
+- Additive SQLite schema-1 migration preserves legacy positions and events; thread-safe read-only history APIs feed a local equity chart, account controls and decision table.
+- Paper-only mode, Qwen2.5:14b, existing indicator conventions and exclusion of fees/funding remain unchanged. No new framework, model or historical replay is introduced.
+
+## Previous modular paper-trading corrections
 
 Base: `b28831a548f91e041c8c10d481073d7a8903c5eb`.
 

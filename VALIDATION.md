@@ -1,5 +1,29 @@
 # Validation — 2026-10-15
 
+## Account history / audit / protections package
+
+Base for this package: `aa92a87`. Three `gpt-6-luna` subagents implemented the protection module, storage migration, and integration regressions. The root agent reviewed those changes, requested corrections, integrated execution/Runner/UI/CLI, and approved the revised result.
+
+| Check | Current result |
+|---|---|
+| `.venv/Scripts/python.exe -m pytest -q` | **120 passed**, 61.60 seconds (59 previous + 61 new tests) |
+| Ruff check | Passed |
+| Ruff format check | 30 Python files formatted |
+| pip check | No broken requirements |
+| Launcher `--help` | Shows all four new account/history options |
+| Invalid CLI control values | Exit with usage error before creating an account; covered in tests |
+| Dashboard extracted JavaScript / `node --check` | Passed |
+| Browser / temporary synthetic account | Equity polyline, 8 samples, accepted ENTRY and MODEL_CLOSE audits, disabled limits and READY account gate displayed |
+| SQLite HTTP history access | Threaded loopback HTTP regression passes; fresh read-only connections |
+
+New regressions cover unrealized daily/global losses, same-day recovery latches, UTC rollover, restart persistence, disabled-by-default controls, no reset on disabling a triggered limit, negative-equity drawdown above 100%, corrupted state, backward OS clock with a breached stop, cooldown for entry/add with exits allowed, forced and interval samples, stale/invalid decisions, quote/indicator/model failures, old snapshot migration, failed initialization releasing account lock, and state/fill/history/audit rollback/recovery under SQLite failures.
+
+The browser preview used a temporary directory and synthetic prices/model decisions, not the user's active account. The existing external TradingView frame reported `cannot_get_metainfo`; that third-party chart was not validated. Local account-history/control/audit panels worked and had no new script error. Screenshot evidence is outside the repository in the account-package delivery directory. No Binance or Ollama request was used for this validation. No live order, hardware performance, historical profitability, or new model was tested.
+
+The changes below remain historical validation of the previous package, not the current test count.
+
+## Previous modularization package
+
 Base source: `b28831a548f91e041c8c10d481073d7a8903c5eb`.
 
 Environment: Windows, Python 3.10.0, isolated `.venv`; exact installed packages are in `requirements-lock.txt`.

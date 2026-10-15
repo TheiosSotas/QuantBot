@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from .models import finite_number
+from .protections import initial_protections, validate_protections
 
 
 def timestamp():
@@ -51,6 +52,7 @@ def initial_state(config):
             "unrealized_pnl": 0.0,
             "total_equity": config.starting_cash,
         },
+        "protections": initial_protections(),
         "position_revision": 0,
         "last_decision_candle": None,
         "trades": [],
@@ -65,6 +67,8 @@ def thought(state, message, category="ANALYSIS"):
 
 
 def validate_state(state):
+    if "protections" in state:
+        validate_protections(state["protections"])
     p = state["portfolio"]
     for key in (
         "cash_usdt",
