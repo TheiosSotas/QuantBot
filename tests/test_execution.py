@@ -9,16 +9,40 @@ from quantbot.risk import size_addition
 
 
 @pytest.mark.parametrize("side,price", [("LONG", 111), ("SHORT", 89)])
-def test_scale_cannot_undo_same_tick_breakeven(engine, side, price):
+def test_scale_does_not_widen_existing_stop_after_halfway_price(engine, side, price):
     seed(engine, side)
     result = apply(engine, decision("HOLD", scale=True), snapshot(price, 20, side), price)
     p = engine.snapshot()["portfolio"]
     assert result == "SCALED"
-    assert p["stop_loss"] == 100
-    assert not p["breakeven_active"]  # An enlarged position has a new average entry.
+    assert p["stop_loss"] == (90 if side == "LONG" else 110)
+    assert not p["breakeven_active"]
     sign = 1 if side == "LONG" else -1
     engine.on_quote(quote(p["stop_loss"] - sign), NOW)
     assert engine.state["portfolio"]["side"] == "FLAT"
+
+
+@pytest.mark.parametrize("side,halfway,retrace,target", [("LONG", 111, 95, 120), ("SHORT", 89, 105, 80)])
+def test_halfway_then_retrace_keeps_original_stop_and_can_reach_target(
+    engine, side, halfway, retrace, target
+):
+    seed(engine, side)
+    original_stop = engine.state["portfolio"]["stop_loss"]
+    for price in (halfway, retrace):
+        assert engine.on_quote(quote(price), NOW) is None
+        assert engine.state["portfolio"]["stop_loss"] == original_stop
+        assert engine.state["portfolio"]["side"] == side
+    assert not engine.state["portfolio"]["breakeven_active"]
+    assert engine.store.db.execute("SELECT count(*) FROM events WHERE kind='STOP_UPDATE'").fetchone()[0] == 0
+    trade = engine.on_quote(quote(target), NOW)
+    assert trade["type"] == "TAKE_PROFIT"
+    assert trade["pnl"] > 0
+
+
+def test_removing_halfway_rule_does_not_loosen_a_preexisting_stop(engine):
+    seed(engine)
+    engine.state["portfolio"].update(stop_loss=100, breakeven_active=True)
+    engine.on_quote(quote(111), NOW)
+    assert engine.state["portfolio"]["stop_loss"] == 100
 
 
 @pytest.mark.parametrize("side,price", [("LONG", 121), ("SHORT", 79)])
@@ -129,7 +153,8 @@ def test_cash_and_position_reconcile_after_multiple_fills(engine):
     seed(engine)
     apply(engine, decision("HOLD", scale=True), snapshot(111, atr=20), 111)
     p = engine.snapshot()["portfolio"]
-    expected = 10000 + (99 - p["entry_price"]) * p["position_units"]
-    engine.on_quote(quote(99), NOW)
+    exit_price = p["stop_loss"] - 1
+    expected = 10000 + (exit_price - p["entry_price"]) * p["position_units"]
+    engine.on_quote(quote(exit_price), NOW)
     assert engine.state["portfolio"]["cash_usdt"] == pytest.approx(expected)
     assert math.isfinite(engine.state["portfolio"]["cash_usdt"])

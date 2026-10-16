@@ -5,7 +5,9 @@ import time
 from .data import dataset_from_rows
 
 
-def fetch_candles(*, start_ms, end_ms, interval_ms, symbol="BTC/USDT:USDT", exchange=None, now_ms=None):
+def fetch_candles(
+    *, start_ms, end_ms, interval_ms, symbol="BTC/USDT:USDT", exchange=None, now_ms=None, progress=None
+):
     if any(type(value) is not int for value in (start_ms, end_ms, interval_ms)):
         raise ValueError("Fetch bounds and interval must be integer milliseconds")
     if interval_ms not in (60_000, 300_000, 3_600_000) or not 0 < start_ms < end_ms:
@@ -40,6 +42,8 @@ def fetch_candles(*, start_ms, end_ms, interval_ms, symbol="BTC/USDT:USDT", exch
             raise ValueError("Historical API made no forward progress")
         rows.extend(accepted)
         cursor = accepted[-1][0] + interval_ms
+        if progress is not None:
+            progress(len(rows), (end_ms - start_ms) // interval_ms)
     return dataset_from_rows(
         rows,
         interval_ms=interval_ms,

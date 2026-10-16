@@ -265,7 +265,6 @@
           <div class="telemetry-row"><span>Blended Entry:</span><span class="mono" id="tel-entry">$0.00</span></div>
           <div class="telemetry-row"><span>Stop-Loss Level:</span><span class="mono" style="color: var(--neon-red);" id="tel-sl">$0.00</span></div>
           <div class="telemetry-row"><span>Take-Profit Target:</span><span class="mono" style="color: var(--neon-green);" id="tel-tp">$0.00</span></div>
-          <div class="telemetry-row"><span>50% Breakeven Point:</span><span class="mono" style="color: var(--neon-gold);" id="tel-be">$0.00</span></div>
         </div>
         <div>
           <div class="panel-title" style="margin-bottom: 8px;">Quant Momentum Metrics</div>
@@ -410,13 +409,8 @@
 
         const shieldEl = document.getElementById('kpi-shield');
         if (data.portfolio.side !== "FLAT") {
-          if (data.portfolio.breakeven_active) {
-            shieldEl.className = 'shield-badge shield-safe';
-            shieldEl.innerText = 'STOP AT/BEYOND ENTRY';
-          } else {
-            shieldEl.className = 'shield-badge shield-wait';
-            shieldEl.innerText = 'INITIAL STOP ACTIVE';
-          }
+          shieldEl.className = 'shield-badge shield-wait';
+          shieldEl.innerText = 'STOP ACTIVE';
         } else {
           shieldEl.className = 'shield-badge shield-wait';
           shieldEl.innerText = 'STANDBY (FLAT)';
@@ -424,16 +418,11 @@
 
         const entry = data.portfolio.entry_price;
         const tp = data.portfolio.take_profit;
-        let beLevel = 0;
-        if (entry > 0 && tp > 0) {
-          beLevel = data.portfolio.side === "LONG" ? (entry + 0.5 * (tp - entry)) : (entry - 0.5 * (entry - tp));
-        }
 
         document.getElementById('tel-units').innerText = data.portfolio.position_units.toFixed(4) + " BTC";
         document.getElementById('tel-entry').innerText = "$" + entry.toLocaleString();
         document.getElementById('tel-sl').innerText = "$" + data.portfolio.stop_loss.toLocaleString();
         document.getElementById('tel-tp').innerText = "$" + tp.toLocaleString();
-        document.getElementById('tel-be').innerText = "$" + beLevel.toLocaleString();
 
         document.getElementById('tel-rsi').innerText = data.market.rsi_14;
         document.getElementById('tel-ema20').innerText = "$" + data.market.ema_20.toLocaleString();

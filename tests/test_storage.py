@@ -20,7 +20,7 @@ def test_open_position_and_protection_survive_restart(config):
         restarted = PaperEngine(config, second)
         assert restarted.state["portfolio"] == before["portfolio"]
         assert restarted.state["last_decision_candle"] == before["last_decision_candle"]
-        restarted.on_quote(quote(99), NOW)
+        restarted.on_quote(quote(before["portfolio"]["stop_loss"] - 1), NOW)
         assert restarted.state["portfolio"]["side"] == "FLAT"
     finally:
         second.close()

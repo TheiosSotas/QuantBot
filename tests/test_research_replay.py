@@ -169,12 +169,11 @@ def test_gap_open_stop_fills_at_observed_open_and_trade_time_uses_replay_clock(t
 
 @pytest.mark.parametrize(
     "policy,expected_side,expected_cash",
-    [
-        ("conservative", "FLAT", 10_000),
-        ("optimistic", "LONG", 10_000),
-    ],
+    [("conservative", "LONG", 10_000), ("optimistic", "LONG", 10_000)],
 )
-def test_breakeven_move_then_retrace_is_path_sensitive(tmp_path, policy, expected_side, expected_cash):
+def test_halfway_then_retrace_does_not_move_stop_in_either_path(
+    tmp_path, policy, expected_side, expected_cash
+):
     hourly, _ = _make_data(hours=2)
     at = hourly.rows[606].timestamp / 1000
     config = Config(data_dir=tmp_path / policy)
@@ -183,13 +182,11 @@ def test_breakeven_move_then_retrace_is_path_sensitive(tmp_path, policy, expecte
 
     ambiguous, sensitive = _resolve_bar(engine, clock, bar, 60_000, policy)
     assert ambiguous is False
-    assert sensitive is True
+    assert sensitive is False
     assert engine.snapshot()["portfolio"]["side"] == expected_side
     assert engine.snapshot()["portfolio"]["cash_usdt"] == pytest.approx(expected_cash)
-    if policy == "conservative":
-        close_events = [event for event in store.events if event[0] == "CLOSE"]
-        assert len(close_events) == 1
-        assert close_events[0][1]["type"] == "BREAKEVEN_EXIT"
+    assert engine.snapshot()["portfolio"]["stop_loss"] == 90
+    assert not any(kind in ("CLOSE", "STOP_UPDATE") for kind, _ in store.events)
 
 
 def test_replay_advisors_receive_only_closed_causal_history_and_future_edits_are_prefix_invariant(tmp_path):

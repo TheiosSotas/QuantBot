@@ -1,5 +1,25 @@
 # Validation — 2026-10-16
 
+## Αφαίρεση αυτόματου stop στην είσοδο στο 50% του στόχου
+
+- Τελικό regression suite: **251 passed, 1 deselected σε 63.36 s**. Εξαιρέθηκε μόνο το αργό ετήσιο stress test· δεν επαναλήφθηκε για αυτή τη στοχευμένη αλλαγή κανόνα.
+- Καλύπτονται LONG/SHORT που περνούν το μισό του στόχου, επιστρέφουν πέρα από την είσοδο και παραμένουν ανοιχτά μέχρι τον αρχικό στόχο. Δεν παράγεται αυτόματο `STOP_UPDATE`.
+- Τα δύο intrabar σενάρια replay δεν μεταφέρουν stop στο μισό. Υπάρχον αποθηκευμένο stop δεν χαλαρώνει· οι έλεγχοι restart/λογιστικής κλεισίματος χρησιμοποιούν το πραγματικό stop.
+- Αφαιρέθηκαν η ένδειξη και ο υπολογισμός του 50% από το dashboard. Ruff check/format: πέρασαν.
+
+## Κέντρο ελέγχου Windows / μεγάλα backtests
+
+- Πλήρες suite κατά την ολοκλήρωση του compact engine: **245 passed σε 467.07 s**, περιλαμβανομένου του συνεχούς συνθετικού ετήσιου replay.
+- Τελικό suite μετά τις διορθώσεις CLI/UI/reporting: **248 passed, 1 deselected σε 66.85 s**. Μόνο το αμετάβλητο αργό ετήσιο test εξαιρέθηκε, επειδή είχε ήδη περάσει στο πλήρες suite. Συνολικά καλύπτονται 249 διαφορετικά tests.
+- Ruff check και format check: πέρασαν. `pip check`: κανένα ασύμβατο requirement.
+- Πραγματική εκκίνηση Windows μέσω `START-QUANTBOT.vbs`: πέρασε με το υπάρχον Python/venv. Το παράθυρο προετοιμασίας εκκίνησε το loopback control centre χωρίς terminal input.
+- Browser: κανονική φόρτωση, πλήρες έτος 2025 → `2025-01-01` έως `2026-01-01`, demo → ολοκληρωμένη HTML αναφορά και JSON μέσω HTTP, επιτυχής ακύρωση χωρίς ορφανό research process, αυτόματη αλλαγή σε 1m όταν επιλέγεται μοντέλο, μηδενικά JavaScript errors στην τελική σελίδα.
+- Συνθετικό 24h compact CLI με 5m execution και ρητό μηδενικό simulated compute latency: cash/rules/numeric ολοκληρώθηκαν. Μηδενικά `AI_DECISION_EXPIRED`, 4/3 εικονικά κλεισίματα για rules/numeric αντίστοιχα. Αποτελεί έλεγχο λογισμικού, όχι πραγματικό trading αποτέλεσμα.
+- Συνθετικό συνεχές έτος: μία ανοικτή LONG θέση διατηρήθηκε χωρίς μηνιαίο reset· **35.041** πλήρη equity samples. Όλα τα streaming metrics συμφώνησαν με ανεξάρτητο επανυπολογισμό από το εξαγόμενο CSV. Οι δοκιμές καλύπτουν επίσης κέρδη/ζημιές, αρνητικό equity, round-trip κλείσιμο και διατήρηση πλήρους audit.
+- Δεν έγινε πραγματικό ετήσιο market backtest, λήψη νέων model weights, inference ή benchmark της RTX 5070 Ti του φίλου. Η πραγματική υπηρεσία Binance/Ollama και οι χρόνοι του δικού του PC χρειάζονται έλεγχο εκεί.
+
+Review αποφάσεων/διορθώσεων: `DESKTOP-REVIEW.md`. Απλές οδηγίες: `QUICKSTART.md`.
+
 ## Historical replay / AI comparison package
 
 Base: `efab424`. Root reviewed three Luna subagents' data, metrics/fold, advisor/cache and replay-test changes, corrected findings and implemented orchestration/reports/CLI. New commits use Greek subjects and explanatory bodies.

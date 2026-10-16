@@ -196,29 +196,15 @@ class PaperEngine:
             closed = None
             if p["side"] != "FLAT":
                 sign = 1 if p["side"] == "LONG" else -1
-                # Evaluate existing exits before moving any thresholds or adding exposure.
+                # Evaluate existing exits before adding exposure.
                 if (quote.price - p["stop_loss"]) * sign <= 0:
                     reason = "BREAKEVEN_EXIT" if abs(quote.price - p["entry_price"]) < 1e-8 else "STOP_LOSS"
                     closed = self._close(candidate, quote.price, reason, events)
                 elif (quote.price - p["take_profit"]) * sign >= 0:
                     closed = self._close(candidate, quote.price, "TAKE_PROFIT", events)
-                else:
-                    threshold = (p["entry_price"] + p["take_profit"]) / 2
-                    if (quote.price - threshold) * sign >= 0:
-                        old_stop = p["stop_loss"]
-                        new_stop = (
-                            max(old_stop, p["entry_price"]) if sign == 1 else min(old_stop, p["entry_price"])
-                        )
-                        if new_stop != old_stop:
-                            p["stop_loss"] = new_stop
-                            events.append(
-                                ("STOP_UPDATE", {"time": timestamp(self.clock()), "stop": new_stop})
-                            )
-                            self._thought(
-                                candidate,
-                                "Stop moved to current entry; fills and losses are not guaranteed.",
-                                "GUARDRAIL",
-                            )
+                if p["side"] != "FLAT":
+                    # Legacy snapshot field describes the actual saved stop;
+                    # reaching half the target never moves it automatically.
                     p["breakeven_active"] = (p["stop_loss"] - p["entry_price"]) * sign >= -1e-8
             if closed:
                 register_close(candidate, self.config, protection_time)
@@ -372,7 +358,7 @@ class PaperEngine:
                 if decision.scale_in_signal and block:
                     outcome, reason, status = block, block, "REJECTED"
                 elif can_scale:
-                    # Use the current stop, including any breakeven update made on this quote.
+                    # An addition may tighten the current stop, but never widen it.
                     stop = (
                         max(p["stop_loss"], price - 1.2 * snapshot.atr_14)
                         if sign == 1
