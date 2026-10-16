@@ -3,6 +3,7 @@
 import copy
 import logging
 import threading
+import time
 from dataclasses import asdict
 
 from .audit import decision_event
@@ -13,10 +14,14 @@ from .state import thought, timestamp
 
 
 class PaperEngine:
-    def __init__(self, config, store):
+    def __init__(self, config, store, *, clock=time.time):
         self.config, self.store = config, store
+        self.clock = clock
         self.lock = threading.RLock()
         self.state = store.load()
+
+    def _thought(self, state, message, category="ANALYSIS"):
+        thought(state, message, category, at=self.clock())
 
     def snapshot(self):
         with self.lock:
@@ -142,13 +147,12 @@ class PaperEngine:
         finite_number(p["unrealized_pnl"], "unrealized PnL")
         finite_number(p["total_equity"], "equity")
 
-    @staticmethod
-    def _close(state, price, reason, events):
+    def _close(self, state, price, reason, events):
         p = state["portfolio"]
         sign = 1 if p["side"] == "LONG" else -1
         pnl = (price - p["entry_price"]) * p["position_units"] * sign
         trade = {
-            "time": timestamp(),
+            "time": timestamp(self.clock()),
             "side": p["side"],
             "type": reason,
             "entry": p["entry_price"],
@@ -174,7 +178,7 @@ class PaperEngine:
         state["trades"].insert(0, trade)
         del state["trades"][200:]
         events.append(("CLOSE", trade))
-        thought(state, f"Closed {trade['side']} via {reason}; gross PnL {pnl:+.2f} USDT", "TRADE_EXIT")
+        self._thought(state, f"Closed {trade['side']} via {reason}; gross PnL {pnl:+.2f} USDT", "TRADE_EXIT")
         return trade
 
     def on_quote(self, quote, now):
@@ -185,7 +189,7 @@ class PaperEngine:
             protection_time = self._update_account(candidate, now)
             candidate["market"]["price"] = quote.price
             candidate["system"].update(
-                last_quote_at=quote.observed_at, last_protection_at=now, last_update=timestamp()
+                last_quote_at=quote.observed_at, last_protection_at=now, last_update=timestamp(self.clock())
             )
             p = candidate["portfolio"]
             events = []
@@ -207,8 +211,10 @@ class PaperEngine:
                         )
                         if new_stop != old_stop:
                             p["stop_loss"] = new_stop
-                            events.append(("STOP_UPDATE", {"time": timestamp(), "stop": new_stop}))
-                            thought(
+                            events.append(
+                                ("STOP_UPDATE", {"time": timestamp(self.clock()), "stop": new_stop})
+                            )
+                            self._thought(
                                 candidate,
                                 "Stop moved to current entry; fills and losses are not guaranteed.",
                                 "GUARDRAIL",
@@ -280,14 +286,14 @@ class PaperEngine:
             )
             candidate["system"]["last_model_at"] = now
             if decision.copilot_commentary or decision.thesis:
-                thought(candidate, decision.copilot_commentary or decision.thesis)
+                self._thought(candidate, decision.copilot_commentary or decision.thesis)
             p = candidate["portfolio"]
             price = quote.price
             events = [
                 (
                     "DECISION",
                     {
-                        "time": timestamp(),
+                        "time": timestamp(self.clock()),
                         "model": self.config.model,
                         "snapshot": snapshot.as_dict(),
                         "decision": asdict(decision),
@@ -333,7 +339,7 @@ class PaperEngine:
                             (
                                 "ENTRY",
                                 {
-                                    "time": timestamp(),
+                                    "time": timestamp(self.clock()),
                                     "side": side,
                                     "units": units,
                                     "price": price,
@@ -343,7 +349,7 @@ class PaperEngine:
                                 },
                             )
                         )
-                        thought(candidate, f"Paper {side}: {units} BTC at {price:.2f}", f"{side}_ENTRY")
+                        self._thought(candidate, f"Paper {side}: {units} BTC at {price:.2f}", f"{side}_ENTRY")
                         outcome = "OPENED"
                         reason, status = "ENTRY", "ACCEPTED"
             elif p["side"] != "FLAT":
@@ -393,7 +399,7 @@ class PaperEngine:
                                 (
                                     "SCALE",
                                     {
-                                        "time": timestamp(),
+                                        "time": timestamp(self.clock()),
                                         "side": p["side"],
                                         "units": extra,
                                         "price": price,
@@ -403,7 +409,7 @@ class PaperEngine:
                                     },
                                 )
                             )
-                            thought(
+                            self._thought(
                                 candidate, f"Added {extra} BTC; blended entry {blended:.2f}", "PYRAMID_SCALE"
                             )
                             outcome = "SCALED"
@@ -428,7 +434,7 @@ class PaperEngine:
             candidate = copy.deepcopy(self.state)
             candidate["lessons"].insert(0, lesson)
             del candidate["lessons"][25:]
-            thought(
+            self._thought(
                 candidate, "Post-mortem saved as a research suggestion; trading rules unchanged.", "LEARNING"
             )
             self._commit(candidate, [("LESSON", lesson)])

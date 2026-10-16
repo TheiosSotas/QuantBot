@@ -16,32 +16,40 @@ class ModelClient:
         self.config = config
         self.session = session or requests.Session()
 
+    def build_request(self, snapshot, portfolio):
+        """Build the exact decision request without sending it.
+
+        Research adapters use this to fingerprint the real prompt and options
+        sent by ``consult``; keep the returned payload aligned with that call.
+        """
+        return {
+            "model": self.config.model,
+            "stream": False,
+            "format": DECISION_SCHEMA,
+            "system": (
+                "Analyze a SIMULATED BTC perpetual position using only the supplied observations. "
+                "LONG requires price > EMA50 > EMA200 and RSI < 68. "
+                "SHORT requires price < EMA50 < EMA200 and RSI > 32. Avoid choppy ranges. "
+                "Scale only into a profitable held direction with volume_ratio > 1.25. "
+                "Never request scaling when closing or reversing. Output the requested JSON schema. "
+                "Confidence is a subjective score, not an estimated win probability."
+            ),
+            "prompt": json.dumps(
+                {
+                    "symbol": self.config.symbol,
+                    "timeframe": self.config.timeframe,
+                    "closed_candle_metrics": snapshot.as_dict(),
+                    "portfolio": portfolio,
+                },
+                allow_nan=False,
+            ),
+            "options": {"temperature": 0.1},
+        }
+
     def consult(self, snapshot, portfolio):
         response = self.session.post(
             self.config.ollama_url,
-            json={
-                "model": self.config.model,
-                "stream": False,
-                "format": DECISION_SCHEMA,
-                "system": (
-                    "Analyze a SIMULATED BTC perpetual position using only the supplied observations. "
-                    "LONG requires price > EMA50 > EMA200 and RSI < 68. "
-                    "SHORT requires price < EMA50 < EMA200 and RSI > 32. Avoid choppy ranges. "
-                    "Scale only into a profitable held direction with volume_ratio > 1.25. "
-                    "Never request scaling when closing or reversing. Output the requested JSON schema. "
-                    "Confidence is a subjective score, not an estimated win probability."
-                ),
-                "prompt": json.dumps(
-                    {
-                        "symbol": self.config.symbol,
-                        "timeframe": self.config.timeframe,
-                        "closed_candle_metrics": snapshot.as_dict(),
-                        "portfolio": portfolio,
-                    },
-                    allow_nan=False,
-                ),
-                "options": {"temperature": 0.1},
-            },
+            json=self.build_request(snapshot, portfolio),
             timeout=(5, self.config.model_timeout),
         )
         response.raise_for_status()

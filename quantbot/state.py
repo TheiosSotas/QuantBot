@@ -4,8 +4,9 @@ from .models import finite_number
 from .protections import initial_protections, validate_protections
 
 
-def timestamp():
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+def timestamp(at=None):
+    value = datetime.now(timezone.utc) if at is None else datetime.fromtimestamp(at, timezone.utc)
+    return value.isoformat(timespec="seconds")
 
 
 def initial_state(config):
@@ -61,8 +62,8 @@ def initial_state(config):
     }
 
 
-def thought(state, message, category="ANALYSIS"):
-    state["copilot_feed"].insert(0, {"time": timestamp(), "category": category, "message": message})
+def thought(state, message, category="ANALYSIS", *, at=None):
+    state["copilot_feed"].insert(0, {"time": timestamp(at), "category": category, "message": message})
     del state["copilot_feed"][45:]
 
 
