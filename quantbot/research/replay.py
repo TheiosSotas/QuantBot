@@ -40,7 +40,7 @@ def _segment(engine, clock, price, at):
     p = engine.state["portfolio"]
     levels = []
     if p["side"] != "FLAT" and price != old_price:
-        for level in (p["stop_loss"], p["take_profit"], (p["entry_price"] + p["take_profit"]) / 2):
+        for level in (p["stop_loss"], p["take_profit"]):
             if min(old_price, price) <= level <= max(old_price, price) and level != old_price:
                 levels.append(level)
         levels = sorted(set(levels), reverse=price < old_price)
