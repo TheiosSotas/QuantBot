@@ -3,6 +3,7 @@
 import argparse
 import json
 import re
+import sys
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -54,7 +55,13 @@ def _run_options(args):
         "publication_delay_seconds": args.publication_delay_seconds,
         "fixed_latency_seconds": args.fixed_latency_seconds,
         "ambiguity_policy": args.ambiguity_policy,
+        "compact": args.compact,
+        "progress_callback": _progress if args.compact else None,
     }
+
+
+def _progress(event):
+    print(json.dumps({"type": "quantbot.progress", **event}, ensure_ascii=False), file=sys.stderr, flush=True)
 
 
 def _candidates(args, config, dataset):
@@ -122,6 +129,9 @@ def _experiment_arguments(parser):
         help="Explicit simulated latency override; measured latency still recorded",
     )
     parser.add_argument("--ambiguity-policy", choices=("conservative", "optimistic"), default="conservative")
+    parser.add_argument(
+        "--compact", action="store_true", help="Stream full audit to disk and bound replay RAM"
+    )
     parser.add_argument("--baselines", default="cash,rules,numeric")
     parser.add_argument(
         "--model", action="append", default=[], help="Installed Ollama model; repeat to compare"
@@ -172,6 +182,7 @@ def main(argv=None):
     walk.add_argument("--holdout-size", type=int, default=0)
     walk.add_argument("--expanding", action="store_true")
     args = parser.parse_args(argv)
+    output_created = False
     try:
         if args.command == "freeze":
             ms = {"1h": 3_600_000, "1m": 60_000, "5m": 300_000}[args.interval]
@@ -184,7 +195,19 @@ def main(argv=None):
             if args.output.exists():
                 raise FileExistsError("Output already exists")
             ms = {"1h": 3_600_000, "1m": 60_000, "5m": 300_000}[args.interval]
-            data = fetch_candles(start_ms=args.since, end_ms=args.until, interval_ms=ms)
+            data = fetch_candles(
+                start_ms=args.since,
+                end_ms=args.until,
+                interval_ms=ms,
+                progress=lambda completed, total: _progress(
+                    {
+                        "phase": "fetch",
+                        "completed": completed,
+                        "total": total,
+                        "percent": 100.0 * completed / total if total else 100.0,
+                    }
+                ),
+            )
             write_dataset(data, args.output)
             print(str(args.output.resolve()))
         elif args.command == "demo":
@@ -207,6 +230,13 @@ def main(argv=None):
             hourly = load_dataset(args.data)
             minute = load_dataset(args.execution_data) if args.execution_data else None
             config = _config(args)
+            if (
+                minute or hourly
+            ).interval_ms / 1000 > config.max_decision_age and args.fixed_latency_seconds is None:
+                raise ValueError(
+                    "Execution bars exceed the decision freshness limit. Use 1m execution data; "
+                    "for deterministic screening only, explicitly choose --fixed-latency-seconds 0."
+                )
             if minute is None and (args.model or args.chronos_revision or args.publication_delay_seconds > 0):
                 raise ValueError(
                     "Use --execution-data with 1m/5m candles for delayed/model decisions; coarse replay requires explicit --publication-delay-seconds 0"
@@ -217,7 +247,19 @@ def main(argv=None):
                     raise ValueError("Use compare for model experiments")
                 args.baselines = args.advisor
                 advisor = _candidates(args, config, hourly)[args.advisor]
-                result = run_replay(hourly, advisor, config=config, execution_data=minute, **options)
+                result = run_replay(
+                    hourly,
+                    advisor,
+                    config=config,
+                    execution_data=minute,
+                    compact_dir=(args.output / ".compact") if args.compact else None,
+                    **{
+                        **options,
+                        "progress_callback": (lambda event: _progress({"advisor": args.advisor, **event}))
+                        if args.compact
+                        else None,
+                    },
+                )
                 export_run(result, args.output)
                 print(json.dumps(result["metrics"], ensure_ascii=False))
             elif args.command == "compare":
@@ -253,6 +295,7 @@ def main(argv=None):
                 )
                 advisors = _candidates(args, config, hourly)
                 args.output.mkdir(parents=True, exist_ok=False)
+                output_created = True
                 evaluations = []
 
                 def evaluate(name, start, end):
@@ -261,7 +304,19 @@ def main(argv=None):
                         advisors[name],
                         config=config,
                         execution_data=minute,
-                        **{**options, "start_index": start, "end_index": end},
+                        compact_dir=(args.output / ".compact" / f"eval_{len(evaluations):04d}_{name}")
+                        if args.compact
+                        else None,
+                        **{
+                            **options,
+                            "start_index": start,
+                            "end_index": end,
+                            "progress_callback": (
+                                lambda event: _progress({"advisor": name, "fold": len(evaluations), **event})
+                            )
+                            if args.compact
+                            else None,
+                        },
                     )
                     export_run(result, args.output / f"eval_{len(evaluations):04d}_{name}")
                     if result["metrics"]["model_errors"]:
@@ -274,6 +329,9 @@ def main(argv=None):
                     return {"score": score, "metrics": metrics}
 
                 results = run_walk_forward(plan, evaluate, list(advisors))
+                compact_root = args.output / ".compact"
+                if compact_root.exists() and not any(compact_root.iterdir()):
+                    compact_root.rmdir()
                 write_json(
                     args.output / "walk-forward.json",
                     {
@@ -288,5 +346,21 @@ def main(argv=None):
                 )
                 print(str((args.output / "walk-forward.json").resolve()))
     except (ValueError, TypeError, OSError, RuntimeError, LookupError) as exc:
+        compact_root = getattr(args, "output", Path()) / ".compact"
+        should_record_incomplete = (args.command == "walk-forward" and output_created) or (
+            args.command == "replay" and compact_root.exists()
+        )
+        incomplete_path = getattr(args, "output", Path()) / "FAILED.json"
+        if should_record_incomplete and not incomplete_path.exists():
+            write_json(
+                incomplete_path,
+                {
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "complete": False,
+                    "audit_spools": [str(path) for path in compact_root.glob("*")]
+                    if compact_root.exists()
+                    else [],
+                },
+            )
         parser.exit(2, f"Research error: {exc}\n")
     return 0

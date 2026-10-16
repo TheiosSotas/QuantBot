@@ -54,12 +54,24 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
         ):
             raise ValueError("Candidate names must use only ASCII letters, numbers, '_' and '-'")
     target = Path(output) if output is not None else None
+    compact = options.pop("compact", False)
+    progress_callback = options.pop("progress_callback", None)
+    if compact and target is None:
+        raise ValueError("Compact comparisons require an output directory for their audit journal")
     if target is not None:
         target.mkdir(parents=True, exist_ok=False)
     results = {}
     try:
         for name, advisor in advisors.items():
-            result = run_replay(dataset, advisor, config=config, execution_data=execution_data, **options)
+            run_options = dict(options)
+            run_options["compact"] = compact
+            if compact:
+                run_options["compact_dir"] = target / ".compact" / name
+            if progress_callback is not None:
+                run_options["progress_callback"] = lambda event, candidate=name: progress_callback(
+                    {"advisor": candidate, **event}
+                )
+            result = run_replay(dataset, advisor, config=config, execution_data=execution_data, **run_options)
             results[name] = result
             if target is not None:
                 export_run(result, target / name)
@@ -87,6 +99,9 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
             write_json(target / "comparison.json", report)
             with (target / "report.html").open("x", encoding="utf-8") as stream:
                 stream.write(comparison_html(results))
+            compact_root = target / ".compact"
+            if compact_root.exists() and not any(compact_root.iterdir()):
+                compact_root.rmdir()
         return report
     except Exception as exc:
         if target is not None:
@@ -96,6 +111,9 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
                     "error": f"{type(exc).__name__}: {exc}",
                     "completed_candidates": list(results),
                     "complete": False,
+                    "audit_spools": [str(path) for path in (target / ".compact").glob("*")]
+                    if (target / ".compact").exists()
+                    else [],
                 },
             )
         raise

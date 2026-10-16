@@ -137,6 +137,8 @@ def test_replay_only_ollama_needs_digest_and_cache_miss_writes_failed_report(tmp
         "replay-only",
         "--publication-delay-seconds",
         "0",
+        "--fixed-latency-seconds",
+        "0",
     ]
     with pytest.raises(SystemExit) as missing:
         main(base)
@@ -155,6 +157,28 @@ def test_replay_only_ollama_needs_digest_and_cache_miss_writes_failed_report(tmp
     assert failed["error"].startswith("CacheMissError:")
     assert not (output / "comparison.json").exists()
     assert not list(tmp_path.rglob("quantbot.sqlite3"))
+
+
+def test_coarse_execution_requires_explicit_latency_assumption(tmp_path, capsys):
+    data, execution = _write_data_pair(tmp_path)
+    output = tmp_path / "coarse"
+    with pytest.raises(SystemExit) as result:
+        main(
+            [
+                "compare",
+                "--data",
+                str(data),
+                "--execution-data",
+                str(execution),
+                "--output",
+                str(output),
+                "--publication-delay-seconds",
+                "0",
+            ]
+        )
+    assert result.value.code == 2
+    assert "decision freshness limit" in capsys.readouterr().err
+    assert not output.exists()
 
 
 def test_offline_demo_writes_metrics_csv_provenance_and_refuses_overwrite(tmp_path, capsys):
