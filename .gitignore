@@ -225,3 +225,8 @@ trades.csv
 quant_memory.json
 .trades-*.csv
 .quantbot.lock
+
+# Local research experiments and advisor response caches
+/research-runs/
+/research-cache/
+/research-datasets/

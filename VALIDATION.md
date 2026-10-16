@@ -1,4 +1,25 @@
-# Validation — 2026-10-15
+# Validation — 2026-10-16
+
+## Historical replay / AI comparison package
+
+Base: `efab424`. Root reviewed three Luna subagents' data, metrics/fold, advisor/cache and replay-test changes, corrected findings and implemented orchestration/reports/CLI. New commits use Greek subjects and explanatory bodies.
+
+| Check | Result |
+|---|---|
+| Full `python -m pytest -q` | **221 passed**, 59.43 seconds (120 previous + 101 new) |
+| Ruff check / format check | Passed; no formatting changes required |
+| `pip check` | No broken requirements |
+| Production launcher `--help` | Passed; paper launch options preserved |
+| Research `--help` and `compare --help` | Passed; fetch/freeze/validate/replay/compare/walk-forward/demo exposed |
+| Offline 24h synthetic comparison | Completed for cash/rules/numeric, independent accounts, detailed files and HTML report |
+| Offline chronological walk-forward example | Three outer folds, final `[620:624]` holdout not evaluated |
+| Two-model loopback HTTP protocol and cache-only repetition | Passed; mock `/api/tags` and `/api/generate`, independent model labels, zero subsequent network calls |
+
+Regression coverage includes dataset corruption and mutable-source isolation, incorrect timestamp units, missing/duplicate bars, incomplete/future features, parent/child OHLCV mismatch, chronological folds/embargo/tie-breaking/holdout exclusion, negative equity and first-sample loss, mark-to-market metrics, conservative/optimistic bracket resolution, breakeven path sensitivity, gap-stop fills, actual delayed next-open application, default publication delay, pending results invalidated by an intervening stop, cache-only misses/corruption, digest/source/prompt/portfolio cache invalidation, model digest mutation, optional Chronos local-only loading, no-decision error reporting, full CLI baseline replay and immutable output files.
+
+The offline examples use **synthetic data**, not downloaded Binance history. Actual Ollama inference, real Chronos weights, GPU memory/latency and profitability were **not** measured. Chronos tests use an injected fake pipeline; the HTTP model test uses an explicitly fake loopback server. No market request, model download or real order was part of these checks. The opt-in fetch implementation is tested with paginated fake exchange responses. Forward/live shadow monitoring, Optuna and supervised retraining are outside this package.
+
+See `REPLAY.md` for timing/intrabar assumptions and `RESEARCH.md` for commands, cache/provenance semantics and statistical limits. Prior validation sections below are historical.
 
 ## Account history / audit / protections package
 

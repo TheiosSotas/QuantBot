@@ -1,5 +1,14 @@
 # Changelog
 
+## Ιστορικές δοκιμές και σύγκριση μοντέλων — 2026-10-16
+
+- Προστέθηκε αιτιακό replay του ίδιου PaperEngine με απομονωμένη μνήμη, ιστορικό ρολόι, έλεγχο warmup και ρητό χρόνο δημοσίευσης/inference/εκτέλεσης.
+- Τα ιστορικά datasets έχουν αμετάβλητα candles, CSV/manifest hashes, ελέγχους πληρότητας και συμφωνία ωριαίων/λεπτών OHLCV. Η ρητή λήψη CCXT ελέγχει gaps και πρόοδο σελίδων.
+- Προστέθηκαν σύγκριση ανεξάρτητων λογαριασμών, cash/rules/momentum baselines, adapters εγκατεστημένου Ollama και προαιρετικού pinned Chronos χωρίς αυτόματο download.
+- Η cache διατηρεί αρχικές καθυστερήσεις, ελέγχει prompt/model/context/source fingerprint και επιτρέπει replay-only χωρίς νέα inference. Αλλαγή εγκατεστημένου model digest απορρίπτεται.
+- Προστέθηκαν chronological validation/test folds με ανέγγιχτο holdout, πλήρη mark-to-market metrics, manifests πειραμάτων, JSON/CSV και ελληνική HTML αναφορά με εμφανή σήμανση συνθετικών δεδομένων.
+- Η ενεργή paper εφαρμογή παραμένει με Qwen2.5:14b και τους ίδιους κανόνες. Δεν προστέθηκαν fees/funding, Optuna, MLflow, πραγματικές εντολές ή αυτόματη προαγωγή μοντέλου.
+
 ## Account history, decision audit and persistent protections — 2026-10-15
 
 - Persisted sampled mark-to-market equity history, including unrealized PnL, account peak, drawdown and exposure; forced samples on fills and protection transitions.
