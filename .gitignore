@@ -218,3 +218,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local paper account and legacy exports
+quantbot.sqlite3*
+trades.csv
+quant_memory.json
+.trades-*.csv
+.quantbot.lock
+
+# Local research experiments and advisor response caches
+/research-runs/
+/research-cache/
+/research-datasets/
