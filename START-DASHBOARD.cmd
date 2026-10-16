@@ -1,2 +1,2 @@
 @echo off
-call "%~dp0windows-launch.cmd" dashboard
+call "%~dp0windows-launch.cmd" ui

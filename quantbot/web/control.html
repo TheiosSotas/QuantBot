@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="el">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="quantbot-token" content="__TOKEN__">
+  <meta name="theme-color" content="#0b1220">
+  <title>QuantBot · Κέντρο ελέγχου</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #09111e;
+      --surface: #111d2c;
+      --surface-raised: #172638;
+      --line: #26394d;
+      --text: #edf4f7;
+      --muted: #9aafbd;
+      --mint: #70e0be;
+      --mint-dark: #173b37;
+      --blue: #84baff;
+      --amber: #f4c978;
+      --red: #ff9d97;
+      --shadow: 0 18px 48px rgba(0, 0, 0, .22);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(ellipse at 15% -10%, rgba(61, 128, 130, .22), transparent 38rem),
+        radial-gradient(ellipse at 100% 5%, rgba(66, 105, 154, .16), transparent 34rem),
+        var(--page);
+      line-height: 1.55;
+    }
+    button, input, select { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a { color: var(--mint); }
+    .shell { width: min(1160px, calc(100% - 36px)); margin: 0 auto; padding: 30px 0 56px; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 28px; }
+    .brand { display: flex; align-items: center; gap: 13px; min-width: 0; }
+    .brand-mark {
+      display: grid; place-items: center; width: 44px; height: 44px; flex: 0 0 auto;
+      color: #09221e; background: linear-gradient(145deg, #9bf0d3, #52c7b0);
+      border-radius: 14px; font-size: 18px; font-weight: 800; letter-spacing: -.08em;
+      box-shadow: 0 8px 24px rgba(70, 211, 177, .18);
+    }
+    .brand h1 { margin: 0; font-size: clamp(19px, 3vw, 24px); letter-spacing: -.035em; line-height: 1.2; }
+    .brand p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    .top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+    .connection { display: inline-flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #708391; }
+    .dot.ok { background: var(--mint); box-shadow: 0 0 12px rgba(112, 224, 190, .55); }
+    .dot.bad { background: var(--red); }
+    .safety {
+      display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px;
+      background: rgba(112, 224, 190, .07); border: 1px solid rgba(112, 224, 190, .22);
+      border-radius: 14px; margin-bottom: 20px; color: #ccefe4; font-size: 13px;
+    }
+    .safety-icon { display: grid; place-items: center; width: 25px; height: 25px; flex: 0 0 auto; border-radius: 8px; color: var(--mint); background: rgba(112,224,190,.12); font-weight: 700; }
+    .safety strong { color: var(--text); }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 18px; align-items: start; }
+    .stack { display: grid; gap: 18px; }
+    .card { min-width: 0; padding: 21px; background: linear-gradient(155deg, rgba(23,38,56,.96), rgba(17,29,44,.98)); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); }
+    .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 17px; }
+    .eyebrow { margin: 0 0 5px; color: var(--mint); font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: 18px; letter-spacing: -.025em; }
+    h3 { margin: 0; font-size: 14px; }
+    .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .status-pill { flex: 0 0 auto; padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 700; }
+    .status-pill.good { color: var(--mint); background: rgba(112,224,190,.08); border-color: rgba(112,224,190,.28); }
+    .status-pill.warn { color: var(--amber); background: rgba(244,201,120,.08); border-color: rgba(244,201,120,.28); }
+    .status-pill.bad { color: var(--red); background: rgba(255,157,151,.08); border-color: rgba(255,157,151,.28); }
+    .paper-state { display: flex; align-items: center; gap: 13px; padding: 15px; margin-bottom: 15px; background: rgba(7,16,27,.48); border: 1px solid rgba(255,255,255,.055); border-radius: 13px; }
+    .state-icon { display: grid; place-items: center; width: 39px; height: 39px; border-radius: 12px; color: var(--muted); background: #223347; font-size: 18px; }
+    .paper-state strong { display: block; font-size: 14px; }
+    .paper-state span { display: block; color: var(--muted); font-size: 12px; }
+    .button-row { display: flex; gap: 9px; flex-wrap: wrap; }
+    .button {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px;
+      padding: 9px 14px; border: 1px solid transparent; border-radius: 11px;
+      color: #10231e; background: var(--mint); font-weight: 750; font-size: 13px; text-decoration: none;
+      cursor: pointer; transition: filter .16s ease, transform .16s ease, border-color .16s ease;
+    }
+    .button:hover:not(:disabled) { filter: brightness(1.07); transform: translateY(-1px); }
+    .button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid rgba(132,186,255,.65); outline-offset: 2px; }
+    .button:disabled { opacity: .48; cursor: not-allowed; }
+    .button.secondary { color: var(--text); background: #24384d; border-color: #38516a; }
+    .button.ghost { color: var(--muted); background: transparent; border-color: var(--line); }
+    .button.danger { color: #ffe9e7; background: rgba(146,53,55,.25); border-color: rgba(255,157,151,.32); }
+    .divider { height: 1px; margin: 17px 0; background: var(--line); }
+    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .field { min-width: 0; }
+    .field.full { grid-column: 1 / -1; }
+    label { display: block; margin-bottom: 6px; color: #d9e4ea; font-size: 12px; font-weight: 650; }
+    input, select {
+      width: 100%; min-height: 42px; padding: 9px 11px; color: var(--text); background: #0c1826;
+      border: 1px solid #344a60; border-radius: 10px;
+    }
+    input::placeholder { color: #73899a; }
+    .preset-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; }
+    .preset {
+      min-height: 31px; padding: 5px 9px; border: 1px solid #31485e; border-radius: 8px;
+      color: #c4d5df; background: rgba(8,17,28,.58); font-size: 11px; cursor: pointer;
+    }
+    .preset:hover { color: var(--mint); border-color: #5cb9a2; }
+    .hint { margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .resolution { margin: 14px 0; padding: 11px 12px; border-radius: 11px; color: #cbd8e4; background: rgba(132,186,255,.07); border: 1px solid rgba(132,186,255,.17); font-size: 12px; }
+    .resolution strong { color: var(--blue); }
+    .progress { margin-top: 15px; padding: 13px; border: 1px solid var(--line); border-radius: 12px; background: rgba(7,16,27,.42); }
+    .progress-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+    .progress-stage { color: var(--blue); font-size: 12px; font-weight: 700; }
+    .job-id { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; overflow-wrap: anywhere; }
+    .log-list { max-height: 180px; overflow: auto; padding: 10px 10px 0 25px; color: #b8c8d3; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    details summary { color: #becbd5; cursor: pointer; font-size: 12px; }
+    .error-box { display: none; margin-top: 12px; padding: 11px 12px; border: 1px solid rgba(255,157,151,.34); border-radius: 10px; color: #ffd0cc; background: rgba(112,35,42,.2); font-size: 12px; overflow-wrap: anywhere; }
+    .error-box.visible { display: block; }
+    .ollama-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid rgba(255,255,255,.06); }
+    .ollama-row:last-of-type { border-bottom: 0; }
+    .model-list, .results-list { display: grid; gap: 8px; margin: 12px 0 0; padding: 0; list-style: none; }
+    .model-item, .result-item { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid rgba(255,255,255,.07); border-radius: 10px; background: rgba(7,16,27,.32); font-size: 12px; }
+    .model-size { color: var(--muted); white-space: nowrap; }
+    .empty { padding: 10px 0 0; color: var(--muted); font-size: 12px; }
+    .result-item a { font-weight: 700; text-decoration: none; }
+    .result-item a:hover { text-decoration: underline; }
+    .disclaimer { margin-top: 19px; padding: 14px 16px; color: var(--muted); border-top: 1px solid var(--line); font-size: 11px; }
+    .disclaimer p { margin: 4px 0; }
+    .toast { position: fixed; right: 20px; bottom: 20px; z-index: 3; max-width: min(420px, calc(100% - 40px)); padding: 12px 15px; border: 1px solid #426154; border-radius: 12px; background: #17352e; color: #e4fff5; box-shadow: var(--shadow); font-size: 13px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease; }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    @media (max-width: 820px) {
+      .grid { grid-template-columns: 1fr; }
+      .shell { width: min(100% - 28px, 650px); padding-top: 20px; }
+      .topbar { align-items: flex-start; }
+      .top-actions { max-width: 45%; }
+    }
+    @media (max-width: 520px) {
+      .shell { width: calc(100% - 22px); }
+      .topbar { display: grid; gap: 14px; }
+      .top-actions { max-width: none; justify-content: flex-start; }
+      .connection { padding: 6px 9px; }
+      .card { padding: 16px; border-radius: 15px; }
+      .field-grid { grid-template-columns: 1fr; }
+      .field.full { grid-column: auto; }
+      .card-head { margin-bottom: 14px; }
+      .button-row .button { flex: 1 1 auto; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">Q</div>
+        <div>
+          <h1>QuantBot · Κέντρο ελέγχου</h1>
+          <p>Τοπική διαχείριση PAPER δοκιμών και ιστορικών replay</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="connection" role="status" aria-live="polite">
+          <span id="connection-dot" class="dot"></span><span id="connection-text">Σύνδεση…</span>
+        </div>
+        <a id="dashboard-link" class="button secondary" href="#" target="_blank" rel="noopener noreferrer" hidden>Άνοιγμα live dashboard ↗</a>
+        <button class="button danger" type="button" data-action="shutdown">Κλείσιμο QuantBot</button>
+      </div>
+    </header>
+
+    <section class="safety" aria-label="Σημαντική πληροφορία για το PAPER">
+      <div class="safety-icon" aria-hidden="true">✓</div>
+      <div><strong>Δεν στέλνονται πραγματικές εντολές.</strong> Το PAPER και το ιστορικό backtest είναι προσομοιώσεις. Οι προμήθειες και το funding δεν περιλαμβάνονται.</div>
+    </section>
+
+    <div class="grid">
+      <div class="stack">
+        <section class="card" aria-labelledby="paper-title">
+          <div class="card-head">
+            <div><p class="eyebrow">Ζωντανή προσομοίωση</p><h2 id="paper-title">PAPER λειτουργία</h2></div>
+            <span id="paper-pill" class="status-pill">Σταματημένο</span>
+          </div>
+          <div class="paper-state">
+            <div id="paper-icon" class="state-icon" aria-hidden="true">Ⅱ</div>
+            <div><strong id="paper-state-title">Η PAPER λειτουργία είναι σταματημένη</strong><span id="paper-state-copy">Εκκινήστε την όταν είστε έτοιμοι.</span></div>
+          </div>
+          <label for="paper-model">Μοντέλο PAPER · εφαρμόζεται στην επόμενη εκκίνηση</label>
+          <select id="paper-model"><option value="qwen2.5:14b">qwen2.5:14b</option></select>
+          <details style="margin:12px 0">
+            <summary>Προαιρετικές προστασίες PAPER · αρχικά ανενεργές</summary>
+            <label for="paper-daily">Ημερήσιο όριο απώλειας (%)</label><input id="paper-daily" type="number" min="0.01" max="99.99" step="0.01" placeholder="Ανενεργό">
+            <label for="paper-drawdown">Μέγιστη πτώση λογαριασμού (%)</label><input id="paper-drawdown" type="number" min="0.01" max="99.99" step="0.01" placeholder="Ανενεργό">
+            <label for="paper-cooldown">Παύση μετά από κλείσιμο (δευτ.)</label><input id="paper-cooldown" type="number" min="0" value="0">
+            <p class="hint">Εφαρμόζονται στην εκκίνηση. Ένα ήδη ενεργοποιημένο όριο ζημιάς δεν σβήνεται με επανεκκίνηση ή αφήνοντας το πεδίο κενό.</p>
+          </details>
+          <div class="button-row">
+            <button id="paper-start" class="button" type="button" data-action="paper_start">Εκκίνηση PAPER</button>
+            <button id="paper-stop" class="button secondary" type="button" data-action="paper_stop" disabled>Διακοπή PAPER</button>
+          </div>
+          <p class="hint">Η διακοπή αποθηκεύει τη θέση, χωρίς να την κλείσει ως συναλλαγή. Όσο είναι σταματημένο δεν παρακολουθούνται τιμές ή stop.</p>
+          <details style="margin-top:12px"><summary>Μηνύματα PAPER</summary><pre id="paper-logs" class="log-list"></pre></details>
+          <div id="paper-error" class="error-box" role="alert"></div>
+        </section>
+
+        <section class="card" aria-labelledby="job-title">
+          <div class="card-head">
+            <div><p class="eyebrow">Κατάσταση εργασιών</p><h2 id="job-title">Πρόοδος και αναφορές</h2></div>
+            <span id="job-pill" class="status-pill">Αναμονή</span>
+          </div>
+          <div class="progress" aria-live="polite">
+            <div class="progress-top"><span id="job-stage" class="progress-stage">Δεν υπάρχει ενεργή εργασία</span><span id="job-id" class="job-id"></span></div>
+            <div class="button-row" style="margin-top:12px">
+              <a id="job-report" class="button secondary" href="#" target="_blank" rel="noopener noreferrer" hidden>Άνοιγμα αναφοράς ↗</a>
+              <button id="job-cancel" class="button ghost" type="button" data-action="cancel" disabled>Ακύρωση εργασίας</button>
+            </div>
+            <details style="margin-top:13px">
+              <summary>Αρχείο συμβάντων</summary>
+              <ul id="job-logs" class="log-list"><li class="empty">Δεν υπάρχουν ακόμη μηνύματα.</li></ul>
+            </details>
+          </div>
+          <div id="job-error" class="error-box" role="alert"></div>
+          <p class="hint">Η ακύρωση σταματά μόνο το backtest. Δεν κλείνει ούτε αλλάζει ανοιχτές θέσεις της PAPER λειτουργίας.</p>
+          <p class="hint">Στη λήψη μοντέλου ακυρώνεται η αναμονή· η υπηρεσία Ollama ενδέχεται να συνεχίσει τη λήψη.</p>
+          <div class="divider"></div>
+          <h3>Προηγούμενες αναφορές</h3>
+          <ul id="results-list" class="results-list"><li class="empty">Δεν υπάρχουν αποθηκευμένα αποτελέσματα.</li></ul>
+        </section>
+
+        <section class="card" aria-labelledby="ollama-title">
+          <div class="card-head">
+            <div><p class="eyebrow">Τοπικά μοντέλα</p><h2 id="ollama-title">Ollama</h2></div>
+            <span id="ollama-pill" class="status-pill">Έλεγχος…</span>
+          </div>
+          <div class="ollama-row">
+            <div><strong id="ollama-state">Έλεγχος υπηρεσίας</strong><div id="ollama-error" class="hint"></div></div>
+            <button class="button secondary" type="button" data-action="ollama_start">Εκκίνηση Ollama</button>
+          </div>
+          <h3 style="margin-top:15px">Εγκατεστημένα μοντέλα</h3>
+          <ul id="models-list" class="model-list"><li class="empty">Φόρτωση μοντέλων…</li></ul>
+          <div class="field" style="margin-top:17px">
+            <label for="pull-model">Εγκατάσταση μοντέλου με ακριβές όνομα</label>
+            <div class="button-row">
+              <input id="pull-model" type="text" autocomplete="off" placeholder="Γράψτε το όνομα που επιλέγετε" aria-describedby="pull-hint">
+              <button id="pull-button" class="button ghost" type="button" data-action="model_pull">Εγκατάσταση</button>
+            </div>
+            <p id="pull-hint" class="hint">Δεν προτείνουμε αυτόματες λήψεις. Χρησιμοποιήστε όνομα μοντέλου που έχετε επιλέξει.</p>
+            <p class="hint">Αν λείπει η εφαρμογή Ollama, <a href="https://ollama.com/download/windows" target="_blank" rel="noopener noreferrer">κατεβάστε την εγκατάσταση για Windows</a>.</p>
+          </div>
+        </section>
+      </div>
+
+      <div class="stack">
+        <section class="card" aria-labelledby="backtest-title">
+          <div class="card-head">
+            <div><p class="eyebrow">Ιστορικά δεδομένα · offline</p><h2 id="backtest-title">Νέο backtest</h2></div>
+            <span class="status-pill good">Χωρίς πραγματικές εντολές</span>
+          </div>
+          <form id="backtest-form">
+            <div class="field-grid">
+              <div class="field"><label for="range-start">Από · συμπεριλαμβάνεται</label><input id="range-start" name="start" type="date" required></div>
+              <div class="field"><label for="range-end">Έως · δεν συμπεριλαμβάνεται</label><input id="range-end" name="end" type="date" required></div>
+              <div class="field full">
+                <label>Γρήγορη επιλογή περιόδου</label>
+                <div class="preset-row">
+                  <button class="preset" type="button" data-range="last7">Τελευταίες 7 ημέρες</button>
+                  <button class="preset" type="button" data-range="last30">Τελευταίες 30 ημέρες</button>
+                  <button class="preset" type="button" data-range="last365">Τελευταίες 365 ημέρες</button>
+                  <button class="preset" type="button" data-range="last-year">Πλήρες έτος <span id="last-year-label">2025</span></button>
+                </div>
+                <p id="year-hint" class="hint">Το πλήρες έτος 2025 είναι ολοκληρωμένο. Το 2026 είναι τρέχον έτος και δεν θεωρείται πλήρες.</p>
+              </div>
+              <div class="field"><label for="interval">Ανάλυση εκτέλεσης</label><select id="interval" name="interval"><option value="5m" selected>5 λεπτά · γρηγορότερο, χωρίς AI</option><option value="1m">1 λεπτό · για τελική σύγκριση και AI</option></select><p class="hint">5 λεπτά: αρχική δοκιμή χωρίς AI, με υπόθεση άμεσου υπολογισμού κανόνων. Για AI επιλέγεται αυτόματα 1 λεπτό και κρατιέται η πραγματική καθυστέρηση του μοντέλου.</p></div>
+              <div class="field"><label for="model">Μοντέλο AI</label><select id="model" name="model"><option value="">Χωρίς AI · βασική σύγκριση</option></select><p class="hint">Προτεινόμενη σειρά: χωρίς AI → qwen2.5 → άλλο μοντέλο. Επιλέγονται μόνο μοντέλα που εμφανίζονται ήδη εγκατεστημένα.</p></div>
+              <div class="field"><label for="starting-cash">Αρχικό κεφάλαιο (USDT)</label><input id="starting-cash" name="starting_cash" type="number" min="1" step="any" value="10000" required></div>
+              <div class="field"><label for="cooldown">Παύση μετά από κλείσιμο (δευτ.)</label><input id="cooldown" name="cooldown_seconds" type="number" min="0" step="1" value="0" required></div>
+              <div class="field"><label for="daily-limit">Ημερήσιο όριο απώλειας (%) · προαιρετικό</label><input id="daily-limit" type="number" min="0.1" max="99.9" step="0.1" placeholder="Ανενεργό"></div>
+              <div class="field"><label for="drawdown-limit">Μέγιστη πτώση λογαριασμού (%) · προαιρετικό</label><input id="drawdown-limit" type="number" min="0.1" max="99.9" step="0.1" placeholder="Ανενεργό"></div>
+            </div>
+            <div class="resolution"><strong>Σημείωση:</strong> τα νέα όρια απώλειας είναι αρχικά ανενεργά. Αφήστε τα κενά αν δεν θέλετε να ενεργοποιήσετε προστασία για αυτό το replay.</div>
+            <div class="button-row"><button class="button" type="submit">Έναρξη backtest</button><button id="demo-button" class="button secondary" type="button" data-action="demo">Offline demo</button></div>
+            <div id="form-error" class="error-box" role="alert"></div>
+          </form>
+        </section>
+
+        <section class="card" aria-labelledby="progression-title">
+          <div class="card-head">
+            <div><p class="eyebrow">Προτεινόμενη δοκιμή</p><h2 id="progression-title">Μία αλλαγή κάθε φορά</h2></div>
+          </div>
+          <ol style="margin:0;padding-left:22px;color:#d4e0e6;font-size:13px">
+            <li style="padding:4px 0"><strong>Χωρίς AI:</strong> σημείο αναφοράς με σταθερούς κανόνες.</li>
+            <li style="padding:4px 0"><strong>qwen2.5:</strong> μόνο αν είναι ήδη εγκατεστημένο το επιλεγμένο μοντέλο.</li>
+            <li style="padding:4px 0"><strong>Challenger:</strong> συγκρίνετε άλλο ρητά επιλεγμένο μοντέλο στις ίδιες ημερομηνίες.</li>
+          </ol>
+          <p class="hint">Κρατήστε ίδια περίοδο, ανάλυση και αρχικό κεφάλαιο ώστε οι αναφορές να είναι συγκρίσιμες.</p>
+        </section>
+      </div>
+    </div>
+
+    <footer class="disclaimer">
+      <p><strong>Περιορισμοί:</strong> PAPER και backtest δεν πραγματοποιούν πραγματικές συναλλαγές. Οι προμήθειες και το funding δεν περιλαμβάνονται.</p>
+      <p>Οι ημερομηνίες είναι UTC. Η ημερομηνία λήξης δεν περιλαμβάνεται στο εύρος.</p>
+    </footer>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    (() => {
+      "use strict";
+      const token = document.querySelector('meta[name="quantbot-token"]').content;
+      const $ = (id) => document.getElementById(id);
+      const state = { defaults: null, busy: false, toastTimer: null, closed: false, rangeDirty: false };
+      const actionButtons = [...document.querySelectorAll("[data-action]")];
+
+      function text(id, value) { $(id).textContent = value == null ? "" : String(value); }
+      function showError(id, value) {
+        const box = $(id);
+        const message = value == null ? "" : String(value);
+        box.textContent = message;
+        box.classList.toggle("visible", Boolean(message));
+      }
+      function toast(message) {
+        const box = $("toast");
+        box.textContent = message;
+        box.classList.add("show");
+        clearTimeout(state.toastTimer);
+        state.toastTimer = setTimeout(() => box.classList.remove("show"), 3000);
+      }
+      function safeLocalUrl(value, dashboard = false) {
+        if (typeof value !== "string" || !value) return null;
+        try {
+          const url = new URL(value, window.location.href);
+          if (dashboard) {
+            if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || !url.port || url.pathname !== "/" || url.username || url.password || url.search || url.hash) return null;
+          } else if (url.origin !== window.location.origin || !/^\/reports\/[a-zA-Z0-9_-]+\/?$/.test(url.pathname)) return null;
+          return url.href;
+        } catch (_) { return null; }
+      }
+      function setLink(element, rawUrl, dashboard = false) {
+        const url = safeLocalUrl(rawUrl, dashboard);
+        element.hidden = !url;
+        if (url) element.href = url;
+        else element.removeAttribute("href");
+      }
+      function setPill(id, label, tone) {
+        const pill = $(id);
+        pill.textContent = label;
+        pill.className = `status-pill${tone ? ` ${tone}` : ""}`;
+      }
+      function addEmpty(list, message) {
+        const item = document.createElement("li");
+        item.className = "empty";
+        item.textContent = message;
+        list.replaceChildren(item);
+      }
+      function renderModels(models) {
+        const signature = JSON.stringify(models || []);
+        if (state.modelsSignature === signature) return;
+        state.modelsSignature = signature;
+        const list = $("models-list");
+        const select = $("model");
+        const previous = select.value;
+        const paperSelect = $("paper-model");
+        const previousPaper = paperSelect.value;
+        paperSelect.replaceChildren();
+        list.replaceChildren();
+        const emptyOption = document.createElement("option");
+        emptyOption.value = "";
+        emptyOption.textContent = "Χωρίς AI · βασική σύγκριση";
+        select.replaceChildren(emptyOption);
+        if (!Array.isArray(models) || models.length === 0) {
+          addEmpty(list, "Δεν βρέθηκαν εγκατεστημένα μοντέλα.");
+          const fallback = document.createElement("option"); fallback.value = "qwen2.5:14b"; fallback.textContent = "qwen2.5:14b · μη διαθέσιμο"; paperSelect.append(fallback);
+          return;
+        }
+        for (const model of models) {
+          const name = typeof model?.name === "string" ? model.name : "";
+          if (!name) continue;
+          const item = document.createElement("li");
+          item.className = "model-item";
+          const label = document.createElement("span");
+          label.textContent = name;
+          const size = document.createElement("span");
+          size.className = "model-size";
+          size.textContent = model.size == null ? "Τοπικό" : `${(Number(model.size) / 1e9).toFixed(1)} GB`;
+          item.append(label, size);
+          list.append(item);
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          select.append(option);
+          paperSelect.append(option.cloneNode(true));
+        }
+        if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+        if ([...paperSelect.options].some((option) => option.value === previousPaper)) paperSelect.value = previousPaper;
+        else if ([...paperSelect.options].some((option) => option.value === "qwen2.5:14b")) paperSelect.value = "qwen2.5:14b";
+        if (!list.children.length) addEmpty(list, "Δεν βρέθηκαν εγκατεστημένα μοντέλα.");
+      }
+      function renderResults(results) {
+        const list = $("results-list");
+        list.replaceChildren();
+        if (!Array.isArray(results) || results.length === 0) {
+          addEmpty(list, "Δεν υπάρχουν αποθηκευμένα αποτελέσματα.");
+          return;
+        }
+        for (const result of results) {
+          const item = document.createElement("li");
+          item.className = "result-item";
+          const label = document.createElement("span");
+          label.textContent = typeof result.label === "string" ? result.label : `Αποτέλεσμα ${result.id ?? ""}`;
+          const link = document.createElement("a");
+          link.textContent = "Άνοιγμα ↗";
+          setLink(link, result.url);
+          if (!link.hidden) {
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            item.append(label, link);
+          } else item.append(label);
+          list.append(item);
+        }
+      }
+      function renderLogs(logs) {
+        const list = $("job-logs");
+        list.replaceChildren();
+        if (!Array.isArray(logs) || logs.length === 0) {
+          addEmpty(list, "Δεν υπάρχουν ακόμη μηνύματα.");
+          return;
+        }
+        for (const entry of logs) {
+          const line = document.createElement("li");
+          line.textContent = typeof entry === "string" ? entry : JSON.stringify(entry);
+          list.append(line);
+        }
+        list.scrollTop = list.scrollHeight;
+      }
+      function renderStatus(data) {
+        actionButtons.forEach((button) => { button.disabled = state.busy; });
+        const paper = data?.paper || {};
+        const running = paper.running === true;
+        setPill("paper-pill", running ? "Σε λειτουργία" : "Σταματημένο", running ? "good" : "");
+        text("paper-state-title", running ? "Η PAPER λειτουργία εκτελείται" : "Η PAPER λειτουργία είναι σταματημένη");
+        text("paper-state-copy", running ? "Οι έξοδοι προστασίας συνεχίζουν να ισχύουν όσο τρέχει." : "Εκκινήστε την όταν είστε έτοιμοι.");
+        $("paper-icon").textContent = running ? "▶" : "Ⅱ";
+        $("paper-start").disabled = state.busy || running;
+        $("paper-stop").disabled = state.busy || !running;
+        showError("paper-error", paper.error);
+        setLink($("dashboard-link"), paper.url, true);
+        text("paper-logs", (paper.logs || []).join("\n"));
+        $("paper-model").disabled = running;
+
+        const job = data?.job || {};
+        const jobRunning = job.running === true;
+        ["demo", "model_pull"].forEach(action => document.querySelectorAll(`[data-action="${action}"]`).forEach(button => { button.disabled = state.busy || jobRunning; }));
+        $("backtest-form").querySelector('button[type="submit"]').disabled = state.busy || jobRunning;
+        setPill("job-pill", jobRunning ? "Σε εξέλιξη" : (job.error ? "Αποτυχία" : "Αναμονή"), jobRunning ? "warn" : (job.error ? "bad" : ""));
+        text("job-stage", typeof job.stage === "string" && job.stage ? job.stage : "Δεν υπάρχει ενεργή εργασία");
+        text("job-id", job.id ? `ID · ${job.id}` : "");
+        $("job-cancel").disabled = state.busy || !jobRunning;
+        setLink($("job-report"), job.report_url);
+        showError("job-error", job.error);
+        renderLogs(job.logs);
+
+        const ollama = data?.ollama || {};
+        const ollamaOk = ollama.ok === true;
+        setPill("ollama-pill", ollamaOk ? "Διαθέσιμο" : "Μη διαθέσιμο", ollamaOk ? "good" : "warn");
+        text("ollama-state", ollamaOk ? "Η υπηρεσία Ollama είναι διαθέσιμη" : "Η υπηρεσία Ollama δεν είναι διαθέσιμη");
+        text("ollama-error", ollama.error || "");
+        renderModels(data?.models);
+        renderResults(data?.results);
+        if (data?.defaults && !state.defaults) {
+          state.defaults = data.defaults;
+          if (!state.rangeDirty && data.defaults.start) $("range-start").value = data.defaults.start;
+          if (!state.rangeDirty && data.defaults.end) $("range-end").value = data.defaults.end;
+          if (data.defaults.year != null) {
+            text("last-year-label", data.defaults.year);
+            text("year-hint", `Το πλήρες έτος ${data.defaults.year} είναι ολοκληρωμένο. Το ${Number(data.defaults.year) + 1} είναι τρέχον έτος και δεν θεωρείται πλήρες.`);
+          }
+        }
+        $("connection-dot").className = "dot ok";
+        text("connection-text", "Συνδεδεμένο");
+      }
+      function setOffline(error) {
+        $("connection-dot").className = "dot bad";
+        text("connection-text", "Χωρίς σύνδεση");
+        showError("job-error", error || "Δεν ήταν δυνατή η επικοινωνία με το QuantBot.");
+        if (!state.busy) {
+          actionButtons.forEach((button) => { button.disabled = false; });
+          $("paper-start").disabled = true;
+          $("paper-stop").disabled = true;
+          $("job-cancel").disabled = true;
+        }
+      }
+      async function refresh() {
+        if (state.closed) return;
+        try {
+          const response = await fetch("/api/status", { cache: "no-store", headers: { Accept: "application/json" } });
+          if (!response.ok) throw new Error(`Η κατάσταση επέστρεψε ${response.status}.`);
+          renderStatus(await response.json());
+        } catch (error) { setOffline(error.message); }
+      }
+      async function sendAction(payload) {
+        if (state.busy) return;
+        state.busy = true;
+        actionButtons.forEach((button) => { button.disabled = true; });
+        try {
+          const response = await fetch("/api/action", {
+            method: "POST",
+            cache: "no-store",
+            headers: { "Content-Type": "application/json", "X-QuantBot-Token": token, Accept: "application/json" },
+            body: JSON.stringify(payload),
+          });
+          let body = {};
+          try { body = await response.json(); } catch (_) { /* Some actions return no body. */ }
+          if (!response.ok) throw new Error(body.error || body.message || `Η ενέργεια απέτυχε (${response.status}).`);
+          if (payload.action === "shutdown") {
+            state.closed = true;
+            text("connection-text", "Η εφαρμογή κλείνει");
+            text("job-stage", "Για επανεκκίνηση κάντε διπλό κλικ στο START-QUANTBOT.");
+            document.querySelectorAll("button").forEach(button => { button.disabled = true; });
+            return;
+          }
+          toast(body.message || "Η ενέργεια καταχωρήθηκε.");
+          showError("form-error", "");
+        } catch (error) {
+          showError("form-error", error.message || "Η ενέργεια δεν ολοκληρώθηκε.");
+          toast("Δεν ολοκληρώθηκε η ενέργεια.");
+        } finally {
+          state.busy = false;
+          await refresh();
+        }
+      }
+      function dateIso(date) { return date.toISOString().slice(0, 10); }
+      function useRange(kind) {
+        state.rangeDirty = true;
+        const today = new Date();
+        const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+        let start;
+        if (kind === "last-year") {
+          const year = Number(state.defaults?.year ?? 2025);
+          start = new Date(Date.UTC(year, 0, 1));
+          end.setUTCFullYear(year + 1, 0, 1);
+        } else {
+          const days = kind === "last7" ? 7 : kind === "last30" ? 30 : 365;
+          start = new Date(end);
+          start.setUTCDate(start.getUTCDate() - days);
+        }
+        $("range-start").value = dateIso(start);
+        $("range-end").value = dateIso(end);
+      }
+      function optionalFraction(id) {
+        const raw = $(id).value.trim();
+        if (!raw) return null;
+        const percent = Number(raw);
+        if (!Number.isFinite(percent) || percent <= 0 || percent >= 100) throw new Error("Τα προαιρετικά όρια πρέπει να είναι πάνω από 0% και κάτω από 100%.");
+        return percent / 100;
+      }
+      function modelResolution() {
+        const hasModel = !!$("model").value;
+        $("interval").querySelector('option[value="5m"]').disabled = hasModel;
+        if (hasModel) $("interval").value = "1m";
+      }
+      $("model").addEventListener("change", modelResolution);
+      document.querySelectorAll("[data-action]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const action = button.dataset.action;
+          if (action === "model_pull") {
+            const model = $("pull-model").value.trim();
+            if (!model) { showError("form-error", "Γράψτε το ακριβές όνομα μοντέλου πριν από την εγκατάσταση."); return; }
+            sendAction({ action, name: model });
+          } else if (action === "paper_start") {
+            try {
+              sendAction({ action, model: $("paper-model").value, daily_loss_limit: optionalFraction("paper-daily"), max_account_drawdown: optionalFraction("paper-drawdown"), cooldown_seconds: Number($("paper-cooldown").value) });
+            } catch (error) { showError("paper-error", error.message); }
+          } else sendAction({ action });
+        });
+      });
+      document.querySelectorAll("[data-range]").forEach((button) => button.addEventListener("click", () => useRange(button.dataset.range)));
+      ["range-start", "range-end"].forEach(id => $(id).addEventListener("input", () => { state.rangeDirty = true; }));
+      $("backtest-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        showError("form-error", "");
+        const start = $("range-start").value;
+        const end = $("range-end").value;
+        const startingCash = Number($("starting-cash").value);
+        const cooldown = Number($("cooldown").value);
+        if (!start || !end || start >= end) { showError("form-error", "Η ημερομηνία έναρξης πρέπει να προηγείται της αποκλειστικής ημερομηνίας λήξης."); return; }
+        if (!Number.isFinite(startingCash) || startingCash <= 0 || !Number.isFinite(cooldown) || cooldown < 0) {
+          showError("form-error", "Ελέγξτε το αρχικό κεφάλαιο και την παύση μετά από κλείσιμο."); return;
+        }
+        let dailyLoss, drawdown;
+        try { dailyLoss = optionalFraction("daily-limit"); drawdown = optionalFraction("drawdown-limit"); }
+        catch (error) { showError("form-error", error.message); return; }
+        sendAction({
+          action: "backtest",
+          start,
+          end,
+          interval: $("interval").value,
+          model: $("model").value,
+          starting_cash: startingCash,
+          daily_loss_limit: dailyLoss,
+          max_account_drawdown: drawdown,
+          cooldown_seconds: cooldown,
+        });
+      });
+
+      refresh();
+      const poll = () => { if (!state.closed) refresh().finally(() => setTimeout(poll, 2000)); };
+      setTimeout(poll, 2000);
+    })();
+  </script>
+</body>
+</html>

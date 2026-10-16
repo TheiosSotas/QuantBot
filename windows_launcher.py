@@ -120,9 +120,14 @@ def backtest():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("dashboard", "backtest", "demo", "check"))
+    parser.add_argument("mode", choices=("ui", "dashboard", "backtest", "demo", "check"))
     args = parser.parse_args()
     try:
+        if args.mode == "ui":
+            from windows_gui import main as gui_main
+
+            gui_main()
+            return 0
         if not prepare(args.mode):
             return 0
         if args.mode == "dashboard":

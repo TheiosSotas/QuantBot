@@ -1,2 +1,3 @@
 # Preserve Windows batch line endings in GitHub ZIP downloads as well as checkouts.
-*.cmd -text
+*.cmd -text whitespace=cr-at-eol
+*.vbs -text whitespace=cr-at-eol
