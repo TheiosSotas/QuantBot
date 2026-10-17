@@ -17,6 +17,9 @@ from .market_data import MarketData
 from .state import timestamp
 from .storage import Store
 
+MODEL_RETRY_BACKOFF_SECONDS = 5.0
+MAX_MODEL_SUBMISSIONS_PER_CANDLE = 2
+
 
 class Runner:
     """One fast market/protection loop and one independent, bounded model queue."""
@@ -25,6 +28,7 @@ class Runner:
         self.config, self.engine, self.market = config, engine, market
         self.worker, self.clock = worker, clock
         self.last_requested_candle = None
+        self.retry_state = None
         self.pending_lesson = None
         self.latest_snapshot = None
 
@@ -89,6 +93,33 @@ class Runner:
                 logging.warning("Model job failed: %s", result.error)
                 self.engine.health(model_status="ERROR", model_error=result.error)
                 if result.job.kind == "DECISION":
+                    retry = self.retry_state
+                    same_retry = retry is not None and retry["candle_id"] == result.job.snapshot.candle_id
+                    current_state = self.engine.snapshot()
+                    can_retry = (
+                        result.retryable
+                        and same_retry
+                        and retry["submissions"] < MAX_MODEL_SUBMISSIONS_PER_CANDLE
+                        and snapshot.candle_id == retry["candle_id"]
+                        and current_state["position_revision"] == retry["revision"]
+                        and self.clock() < retry["deadline"]
+                        and self.clock() + MODEL_RETRY_BACKOFF_SECONDS < retry["deadline"]
+                        and time.monotonic() < retry["deadline_monotonic"]
+                        and time.monotonic() + MODEL_RETRY_BACKOFF_SECONDS < retry["deadline_monotonic"]
+                    )
+                    if can_retry:
+                        retry["retry_at"] = self.clock() + MODEL_RETRY_BACKOFF_SECONDS
+                        retry["last_error"] = result.error
+                        self._audit_failure(
+                            result,
+                            "MODEL_ERROR",
+                            quote,
+                            latest_candle=snapshot.candle_id,
+                            detail=result.error,
+                        )
+                        continue
+                    if same_retry:
+                        self.retry_state = None
                     reason = (
                         "INVALID_MODEL_OUTPUT"
                         if result.error.startswith(("ValueError:", "ModelDecisionError:"))
@@ -101,6 +132,11 @@ class Runner:
             if result.job.kind == "LESSON":
                 self.engine.add_lesson(result.value)
                 continue
+            if (
+                self.retry_state is not None
+                and self.retry_state["candle_id"] == result.job.snapshot.candle_id
+            ):
+                self.retry_state = None
             before = self.engine.snapshot()
             outcome = self.engine.apply_decision(
                 result.value,
@@ -118,7 +154,79 @@ class Runner:
                 self._remember_loss(after["trades"][0], snapshot)
         state = self.engine.snapshot()
         last = state["last_decision_candle"]
+        retry = self.retry_state
+        if retry is not None and retry["candle_id"] != snapshot.candle_id:
+            self.engine.audit_rejection(
+                "STALE_CANDLE",
+                now=self.clock(),
+                requested_at=retry["requested_at"],
+                snapshot=retry["snapshot"],
+                quote=quote,
+                revision=retry["revision"],
+                latest_candle=snapshot.candle_id,
+                detail=retry.get("last_error", "Transient model failure expired with its candle"),
+            )
+            self.retry_state = None
+            retry = None
+        if retry is not None and self.clock() >= retry["deadline"]:
+            self.engine.audit_rejection(
+                "MODEL_ERROR",
+                now=self.clock(),
+                requested_at=retry["requested_at"],
+                snapshot=retry["snapshot"],
+                quote=quote,
+                revision=retry["revision"],
+                latest_candle=snapshot.candle_id,
+                detail=retry.get("last_error", "Transient model failure exceeded the decision age limit"),
+            )
+            self.retry_state = None
+            retry = None
+        if retry is not None and time.monotonic() >= retry["deadline_monotonic"]:
+            self.engine.audit_rejection(
+                "MODEL_ERROR",
+                now=self.clock(),
+                requested_at=retry["requested_at"],
+                snapshot=retry["snapshot"],
+                quote=quote,
+                revision=retry["revision"],
+                latest_candle=snapshot.candle_id,
+                detail=retry.get("last_error", "Transient model failure exceeded the inference deadline"),
+            )
+            self.retry_state = None
+            retry = None
+        if retry is not None and state["position_revision"] != retry["revision"]:
+            self.engine.audit_rejection(
+                "POSITION_CHANGED",
+                now=self.clock(),
+                requested_at=retry["requested_at"],
+                snapshot=retry["snapshot"],
+                quote=quote,
+                revision=retry["revision"],
+                latest_candle=snapshot.candle_id,
+                detail="Position changed before transient model retry",
+            )
+            self.retry_state = None
+            retry = None
         if (
+            retry is not None
+            and retry["retry_at"] is not None
+            and self.clock() >= retry["retry_at"]
+            and self.worker.ready()
+        ):
+            current_snapshot = replace(snapshot, observed_at=quote.observed_at, current_price=quote.price)
+            job = Job(
+                "DECISION",
+                current_snapshot,
+                state["portfolio"],
+                retry["requested_at"],
+                retry["revision"],
+                deadline_monotonic=retry["deadline_monotonic"],
+            )
+            if self.worker.submit(job):
+                retry["submissions"] += 1
+                retry["retry_at"] = None
+                self.engine.health(model_status="PENDING", model_error=None)
+        elif retry is None and (
             self.worker.ready()
             and self.last_requested_candle != snapshot.candle_id
             and (last is None or snapshot.candle_id > last)
@@ -126,13 +234,30 @@ class Runner:
         ):
             # Quote and portfolio are current even when indicators came from the per-bar cache.
             current_snapshot = replace(snapshot, observed_at=quote.observed_at, current_price=quote.price)
+            deadline_monotonic = time.monotonic() + self.config.max_decision_age
             job = Job(
-                "DECISION", current_snapshot, state["portfolio"], self.clock(), state["position_revision"]
+                "DECISION",
+                current_snapshot,
+                state["portfolio"],
+                self.clock(),
+                state["position_revision"],
+                deadline_monotonic=deadline_monotonic,
             )
             if self.worker.submit(job):
                 self.last_requested_candle = snapshot.candle_id
+                self.retry_state = {
+                    "candle_id": snapshot.candle_id,
+                    "snapshot": current_snapshot,
+                    "requested_at": job.requested_at,
+                    "revision": job.revision,
+                    "deadline": job.requested_at + self.config.max_decision_age,
+                    "deadline_monotonic": deadline_monotonic,
+                    "submissions": 1,
+                    "retry_at": None,
+                    "last_error": None,
+                }
                 self.engine.health(model_status="PENDING")
-        elif self.worker.ready() and self.pending_lesson:
+        elif retry is None and self.worker.ready() and self.pending_lesson:
             if self.worker.submit(self.pending_lesson):
                 self.pending_lesson = None
         self.engine.health(

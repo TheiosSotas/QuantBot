@@ -2,6 +2,7 @@
 
 import copy
 import json
+import time
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -216,6 +217,74 @@ def test_paper_worker_returns_repaired_decision_without_crashing(config):
         result = worker.results.get(timeout=3)
         assert not result.error
         assert result.value.confidence == 0.9 and result.value.scale_in_signal is False
+        assert len(session.requests) == 2
+    finally:
+        worker.close()
+        worker.thread.join(timeout=2)
+
+
+def test_worker_passes_remaining_job_budget_to_real_model_client(config):
+    config = replace(config, model_timeout=120)
+    session = Session([json.dumps(decision())])
+    worker = ModelWorker(ModelClient(config, session))
+    data = snapshot()
+    deadline = time.monotonic() + 15
+    job = Job("DECISION", data, {}, data.observed_at, 0, deadline_monotonic=deadline)
+    worker.start()
+    try:
+        assert worker.submit(job)
+        result = worker.results.get(timeout=3)
+        assert not result.error
+        read_timeout = session.requests[0]["timeout"][1]
+        assert 0 < read_timeout <= 15
+        assert read_timeout < config.model_timeout
+    finally:
+        worker.close()
+        worker.thread.join(timeout=2)
+
+
+def test_expired_queued_job_never_calls_model_session(config):
+    session = Session([])
+    worker = ModelWorker(ModelClient(config, session))
+    data = snapshot()
+    job = Job("DECISION", data, {}, data.observed_at, 0, deadline_monotonic=time.monotonic() - 1)
+    worker.start()
+    try:
+        assert worker.submit(job)
+        result = worker.results.get(timeout=3)
+        assert result.error.startswith("Timeout:")
+        assert session.requests == []
+    finally:
+        worker.close()
+        worker.thread.join(timeout=2)
+
+
+@pytest.mark.parametrize("status,expected", [(429, True), (503, True), (400, False), (401, False)])
+def test_worker_retries_only_transient_http_statuses(config, status, expected):
+    response = SimpleNamespace(status_code=status)
+    session = Session([requests.HTTPError(f"HTTP {status}", response=response)])
+    worker = ModelWorker(ModelClient(config, session))
+    data = snapshot()
+    worker.start()
+    try:
+        assert worker.submit(Job("DECISION", data, {}, data.observed_at, 0))
+        result = worker.results.get(timeout=3)
+        assert result.retryable is expected
+    finally:
+        worker.close()
+        worker.thread.join(timeout=2)
+
+
+def test_worker_does_not_mark_invalid_schema_retryable(config):
+    session = Session(["not JSON", "not JSON"])
+    worker = ModelWorker(ModelClient(config, session))
+    data = snapshot()
+    worker.start()
+    try:
+        assert worker.submit(Job("DECISION", data, {}, data.observed_at, 0))
+        result = worker.results.get(timeout=3)
+        assert result.error.startswith("ModelDecisionError:")
+        assert result.retryable is False
         assert len(session.requests) == 2
     finally:
         worker.close()

@@ -4,6 +4,7 @@ import copy
 import hashlib
 import json
 import logging
+import math
 import queue
 import threading
 import time
@@ -114,11 +115,11 @@ class ModelClient:
             "options": {"temperature": 0},
         }
 
-    def consult(self, snapshot, portfolio):
-        decision, _trace = self.consult_with_trace(snapshot, portfolio)
+    def consult(self, snapshot, portfolio, *, timeout_seconds=None):
+        decision, _trace = self.consult_with_trace(snapshot, portfolio, timeout_seconds=timeout_seconds)
         return decision
 
-    def consult_with_trace(self, snapshot, portfolio, *, before_attempt=None):
+    def consult_with_trace(self, snapshot, portfolio, *, before_attempt=None, timeout_seconds=None):
         """At most one repair using the same immutable context and shared budget.
 
         No coercion of confidence/booleans and no invented HOLD. Research keeps
@@ -126,7 +127,14 @@ class ModelClient:
         """
         base = self.build_request(snapshot, portfolio)
         request = copy.deepcopy(base)
-        deadline = time.perf_counter() + self.config.model_timeout
+        budget = self.config.model_timeout
+        if timeout_seconds is not None:
+            if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds):
+                raise ValueError("timeout_seconds must be finite")
+            budget = min(budget, timeout_seconds)
+        if budget <= 0:
+            raise requests.Timeout("AI decision deadline expired before inference")
+        deadline = time.perf_counter() + budget
         trace = {"policy": "strict-schema-one-repair-v2", "recovered": False, "attempts": []}
         last_error = "No valid model response"
         for attempt in (1, 2):
@@ -277,6 +285,7 @@ class Job:
     requested_at: float
     revision: int
     trade: object = None
+    deadline_monotonic: float | None = None
 
 
 @dataclass(frozen=True)
@@ -284,6 +293,7 @@ class Result:
     job: Job
     value: object = None
     error: str = ""
+    retryable: bool = False
 
 
 class ModelWorker:
@@ -316,14 +326,23 @@ class ModelWorker:
                 continue
             self.busy.set()
             try:
-                value = (
-                    self.client.consult(job.snapshot, job.portfolio)
-                    if job.kind == "DECISION"
-                    else self.client.post_mortem(job.trade, job.snapshot)
-                )
+                if job.kind == "DECISION":
+                    if job.deadline_monotonic is None:
+                        value = self.client.consult(job.snapshot, job.portfolio)
+                    else:
+                        remaining = job.deadline_monotonic - time.monotonic()
+                        if remaining <= 0:
+                            raise requests.Timeout("AI decision deadline expired before inference")
+                        value = self.client.consult(job.snapshot, job.portfolio, timeout_seconds=remaining)
+                else:
+                    value = self.client.post_mortem(job.trade, job.snapshot)
                 self.results.put(Result(job, value=value))
             except Exception as exc:
-                self.results.put(Result(job, error=f"{type(exc).__name__}: {exc}"))
+                retryable = isinstance(exc, (requests.ConnectionError, requests.Timeout))
+                if isinstance(exc, requests.HTTPError):
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    retryable = status == 429 or (isinstance(status, int) and 500 <= status <= 599)
+                self.results.put(Result(job, error=f"{type(exc).__name__}: {exc}", retryable=retryable))
             finally:
                 self.busy.clear()
                 self.jobs.task_done()
