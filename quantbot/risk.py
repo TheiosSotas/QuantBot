@@ -1,10 +1,13 @@
 import math
 
 
-def eligible(side, snapshot, price, regime):
+def eligible(side, snapshot, price, regime, config=None):
     """Enforce the existing prompt's entry filters at the execution boundary."""
     if regime == "CHOPPY_RANGE":
         return False
+    if config is not None and config.min_trend_strength > 0:
+        if abs(snapshot.ema_50 - snapshot.ema_200) / snapshot.atr_14 < config.min_trend_strength:
+            return False
     if side == "LONG":
         return price > snapshot.ema_50 > snapshot.ema_200 and snapshot.rsi_14 < 68
     return price < snapshot.ema_50 < snapshot.ema_200 and snapshot.rsi_14 > 32

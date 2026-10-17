@@ -144,7 +144,8 @@ def test_existing_gui_instance_checks_workspace_identity(tmp_path):
         opening.assert_not_called()
 
 
-def test_gui_backtest_uses_compact_common_cli_and_preserves_active_account(tmp_path):
+@pytest.mark.parametrize("experiments", [False, True])
+def test_gui_backtest_uses_compact_common_cli_and_preserves_active_account(tmp_path, experiments):
     control = Control(tmp_path)
     commands = []
     payload = {
@@ -153,6 +154,7 @@ def test_gui_backtest_uses_compact_common_cli_and_preserves_active_account(tmp_p
         "end": "2026-01-01",
         "interval": "5m",
         "model": "",
+        "strategy_experiments": experiments,
     }
 
     def command(*args):
@@ -172,8 +174,23 @@ def test_gui_backtest_uses_compact_common_cli_and_preserves_active_account(tmp_p
     assert "--compact" in commands[2]
     assert commands[2][-2:] == ["--fixed-latency-seconds", "0"]
     assert "--model" not in commands[2]
+    assert ("--strategy-experiments" in commands[2]) is experiments
     assert control.job["report_url"] == "/reports/annual-test"
     assert not (tmp_path / "quantbot.sqlite3").exists()
+
+
+def test_invalid_experiment_flag_does_not_launch_job(tmp_path):
+    control = Control(tmp_path)
+    with pytest.raises(ValueError, match="παραλλαγών"):
+        control.start_job(
+            {
+                "action": "backtest",
+                "start": "2025-01-01",
+                "end": "2025-01-02",
+                "strategy_experiments": "false",
+            }
+        )
+    assert control.job["running"] is False
 
 
 def test_orphan_recovery_signals_only_private_paper_records(tmp_path):

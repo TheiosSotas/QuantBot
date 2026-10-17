@@ -69,9 +69,20 @@ class Decision:
             raise ValueError("Decision fields must match the schema")
         if value.get("action") not in ACTIONS or value.get("market_regime") not in REGIMES:
             raise ValueError("Invalid action or regime")
-        confidence = finite_number(value.get("confidence"), "confidence")
-        if not 0 <= confidence <= 1 or type(value.get("scale_in_signal")) is not bool:
-            raise ValueError("Confidence must be 0..1 and scale_in_signal a boolean")
+        errors = []
+        try:
+            confidence = finite_number(value.get("confidence"), "confidence")
+            if not 0 <= confidence <= 1:
+                errors.append(f"confidence must be between 0 and 1; got {confidence!r}")
+        except ValueError as exc:
+            errors.append(str(exc))
+        if type(value.get("scale_in_signal")) is not bool:
+            errors.append(
+                "scale_in_signal must be a JSON boolean true/false; got "
+                f"{repr(value.get('scale_in_signal'))[:100]} ({type(value.get('scale_in_signal')).__name__})"
+            )
+        if errors:
+            raise ValueError("; ".join(errors))
         for key in ("thesis", "copilot_commentary"):
             if not isinstance(value.get(key, ""), str) or len(value.get(key, "")) > 4000:
                 raise ValueError(f"Invalid {key}")
@@ -93,8 +104,8 @@ DECISION_SCHEMA = {
         "market_regime": {"type": "string", "enum": list(REGIMES)},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "scale_in_signal": {"type": "boolean"},
-        "thesis": {"type": "string"},
-        "copilot_commentary": {"type": "string"},
+        "thesis": {"type": "string", "maxLength": 4000},
+        "copilot_commentary": {"type": "string", "maxLength": 4000},
     },
     "required": ["action", "market_regime", "confidence", "scale_in_signal", "thesis", "copilot_commentary"],
 }

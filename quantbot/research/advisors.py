@@ -365,6 +365,9 @@ class OllamaAdvisor(Advisor):
         self.endpoint = getattr(client_config, "ollama_url", config.ollama_url)
         self.symbol = getattr(client_config, "symbol", config.symbol)
         self.timeframe = getattr(client_config, "timeframe", config.timeframe)
+        self.model_timeout = float(
+            getattr(client_config, "model_timeout", getattr(config, "model_timeout", 120.0))
+        )
         self._model_digest = model_digest
         self._digest_source = "explicit" if model_digest else "unresolved"
         self._model_details = {}
@@ -395,6 +398,7 @@ class OllamaAdvisor(Advisor):
             "endpoint": self._safe_endpoint(self.endpoint),
             "symbol": self.symbol,
             "timeframe": self.timeframe,
+            "model_timeout_seconds": self.model_timeout,
             "request_template_hash": template_hash,
             "options": copy.deepcopy(request.get("options", {})),
             "runtime": {"python": platform.python_version(), "requests": _package_version("requests")},
@@ -443,6 +447,14 @@ class OllamaAdvisor(Advisor):
         self._digest_source = "ollama_api_tags"
         return self._model_digest
 
+    def _verify_resolved_digest(self):
+        if self._digest_source == "ollama_api_tags":
+            installed_digest, _ = self._installed_model_identity()
+            if installed_digest != self._model_digest:
+                raise RuntimeError(
+                    "Installed Ollama model digest changed after resolution; re-resolve identity before advising"
+                )
+
     def advise(self, context: DecisionContext) -> Advice:
         started = time.perf_counter()
         request = None
@@ -453,12 +465,8 @@ class OllamaAdvisor(Advisor):
             "model_details": copy.deepcopy(self._model_details),
         }
         try:
-            if self._digest_source == "ollama_api_tags":
-                installed_digest, _installed_details = self._installed_model_identity()
-                if installed_digest != self._model_digest:
-                    raise RuntimeError(
-                        "Installed Ollama model digest changed after resolution; re-resolve identity before advising"
-                    )
+            if not isinstance(self.client, ModelClient):
+                self._verify_resolved_digest()
             request = self.client.build_request(context.snapshot, _thaw(context.portfolio))
             metadata.update(
                 prompt_hash=_sha256(request.get("prompt")),
@@ -470,13 +478,25 @@ class OllamaAdvisor(Advisor):
                 model=request.get("model", self.model),
                 model_digest_source=self._digest_source,
             )
-            decision = self.client.consult(context.snapshot, _thaw(context.portfolio))
+            traced_consult = getattr(self.client, "consult_with_trace", None)
+            if callable(traced_consult):
+                options = (
+                    {"before_attempt": self._verify_resolved_digest}
+                    if isinstance(self.client, ModelClient)
+                    else {}
+                )
+                decision, trace = traced_consult(context.snapshot, _thaw(context.portfolio), **options)
+                metadata["output_validation"] = trace
+            else:
+                decision = self.client.consult(context.snapshot, _thaw(context.portfolio))
             if isinstance(decision, dict):
                 decision = Decision.parse(decision)
             if not isinstance(decision, Decision):
                 raise TypeError("Ollama client returned no valid Decision")
             return Advice(decision, time.perf_counter() - started, metadata=metadata)
         except Exception as exc:
+            if hasattr(exc, "diagnostics"):
+                metadata["output_validation"] = exc.diagnostics
             metadata["request_available"] = request is not None
             return Advice(
                 None, time.perf_counter() - started, error=f"{type(exc).__name__}: {exc}", metadata=metadata

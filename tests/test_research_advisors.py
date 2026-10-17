@@ -266,6 +266,34 @@ def test_ollama_installed_digest_cache_replays_with_explicit_offline_identity(co
     assert consults == []
 
 
+def test_ollama_cache_separates_timeout_dependent_failure_from_longer_retry(config, tmp_path):
+    context_value = context()
+    short_client = _FakeModelClient(error=TimeoutError("model request timed out"))
+    short_client.config.model_timeout = 1
+    short = CachedAdvisor(
+        OllamaAdvisor(config, client=short_client, model_digest="sha256:stable"),
+        tmp_path,
+        dataset_hash="same-data",
+    )
+
+    failed = short.advise(context_value)
+    assert "timed out" in failed.error
+
+    long_client = _FakeModelClient()
+    long_client.config.model_timeout = 120.0
+    long = CachedAdvisor(
+        OllamaAdvisor(config, client=long_client, model_digest="sha256:stable"),
+        tmp_path,
+        dataset_hash="same-data",
+    )
+    recovered = long.advise(context_value)
+
+    assert recovered.error == ""
+    assert recovered.decision.action == "BUY"
+    assert recovered.metadata["cache_hit"] is False
+    assert long_client.requests
+
+
 class _FakeChronos:
     def __init__(self, median):
         self.median = median

@@ -293,18 +293,20 @@ class PaperEngine:
             reason = "NO_ACTION"
             status = "NO_ACTION"
             opposite = "SELL" if p["side"] == "LONG" else "BUY"
-            if p["side"] != "FLAT" and decision.action in ("CLOSE", opposite) and decision.confidence >= 0.75:
+            close_confident = not self.config.confidence_gate_enabled or decision.confidence >= 0.75
+            scale_confident = not self.config.confidence_gate_enabled or decision.confidence >= 0.8
+            if p["side"] != "FLAT" and decision.action in ("CLOSE", opposite) and close_confident:
                 self._close(candidate, price, "MODEL_REVERSAL", events)
                 register_close(candidate, self.config, candidate["protections"]["last_update_at"])
                 outcome = "CLOSED"
                 reason, status = "MODEL_CLOSE", "ACCEPTED"
-            elif p["side"] == "FLAT" and decision.action in ("BUY", "SELL") and decision.confidence >= 0.75:
+            elif p["side"] == "FLAT" and decision.action in ("BUY", "SELL") and close_confident:
                 side = "LONG" if decision.action == "BUY" else "SHORT"
                 block = entry_block_reason(candidate, self.config, now)
                 reason, status = "STRATEGY_FILTER", "REJECTED"
                 if block:
                     outcome, reason = block, block
-                elif eligible(side, snapshot, price, decision.market_regime):
+                elif eligible(side, snapshot, price, decision.market_regime, self.config):
                     sign = 1 if side == "LONG" else -1
                     stop = price - sign * 1.5 * snapshot.atr_14
                     target = price + sign * 1.5 * snapshot.atr_14 * self.config.reward_risk
@@ -342,18 +344,21 @@ class PaperEngine:
                 sign = 1 if p["side"] == "LONG" else -1
                 same_action = "BUY" if sign == 1 else "SELL"
                 can_scale = (
-                    decision.scale_in_signal
+                    self.config.scale_enabled
+                    and decision.scale_in_signal
                     and decision.action in (same_action, "HOLD")
-                    and decision.confidence >= 0.8
+                    and scale_confident
                     and p["tranches"] < self.config.max_tranches
                     and (price - p["entry_price"]) * sign > 0
                     and snapshot.volume_ratio > 1.25
-                    and eligible(p["side"], snapshot, price, decision.market_regime)
+                    and eligible(p["side"], snapshot, price, decision.market_regime, self.config)
                 )
                 block = entry_block_reason(candidate, self.config, now)
                 if decision.scale_in_signal:
                     reason, status = "SCALE_FILTER", "REJECTED"
-                    if p["tranches"] >= self.config.max_tranches:
+                    if not self.config.scale_enabled:
+                        reason = "SCALE_DISABLED"
+                    elif p["tranches"] >= self.config.max_tranches:
                         reason = "MAX_TRANCHES"
                 if decision.scale_in_signal and block:
                     outcome, reason, status = block, block, "REJECTED"

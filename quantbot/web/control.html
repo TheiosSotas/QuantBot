@@ -101,6 +101,8 @@
       border: 1px solid #344a60; border-radius: 10px;
     }
     input::placeholder { color: #73899a; }
+    .check-option { display: flex; align-items: flex-start; gap: 10px; }
+    .check-option input { width: 18px; min-height: 18px; flex: 0 0 18px; margin-top: 2px; }
     .preset-row { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 11px; }
     .preset {
       min-height: 31px; padding: 5px 9px; border: 1px solid #31485e; border-radius: 8px;
@@ -278,8 +280,13 @@
               <div class="field"><label for="cooldown">Παύση μετά από κλείσιμο (δευτ.)</label><input id="cooldown" name="cooldown_seconds" type="number" min="0" step="1" value="0" required></div>
               <div class="field"><label for="daily-limit">Ημερήσιο όριο απώλειας (%) · προαιρετικό</label><input id="daily-limit" type="number" min="0.1" max="99.9" step="0.1" placeholder="Ανενεργό"></div>
               <div class="field"><label for="drawdown-limit">Μέγιστη πτώση λογαριασμού (%) · προαιρετικό</label><input id="drawdown-limit" type="number" min="0.1" max="99.9" step="0.1" placeholder="Ανενεργό"></div>
+              <div class="field full">
+                <label class="check-option" for="strategy-experiments"><input id="strategy-experiments" type="checkbox"><span>Σύγκριση 4 παραλλαγών στρατηγικής</span></label>
+                <p class="hint">Αρχική στρατηγική, χωρίς προσθήκες στη θέση, χωρίς όριο βεβαιότητας AI και με φίλτρο ισχύος τάσης. Αλλάζει ένας κανόνας κάθε φορά. Τρέχει τέσσερις δοκιμές ανά υποψήφιο και μπορεί να διαρκέσει πολύ περισσότερο με AI. Δεν αλλάζει το PAPER.</p>
+              </div>
             </div>
             <div class="resolution"><strong>Σημείωση:</strong> τα νέα όρια απώλειας είναι αρχικά ανενεργά. Αφήστε τα κενά αν δεν θέλετε να ενεργοποιήσετε προστασία για αυτό το replay.</div>
+            <p class="hint">Το PAPER παρακολουθεί τιμές περίπου ανά 5 δευτερόλεπτα. Εδώ χρησιμοποιούμε κεριά 1 ή 5 λεπτών και προσομοίωση της ενδιάμεσης διαδρομής. Δεν αναπαράγονται ακριβώς οι τιμές ή οι χρόνοι εκτέλεσης του PAPER. Το «αριθμητικό φίλτρο» είναι απλό momentum, όχι εκπαιδευμένο AI.</p>
             <div class="button-row"><button class="button" type="submit">Έναρξη backtest</button><button id="demo-button" class="button secondary" type="button" data-action="demo">Offline demo</button></div>
             <div id="form-error" class="error-box" role="alert"></div>
           </form>
@@ -602,6 +609,7 @@
           daily_loss_limit: dailyLoss,
           max_account_drawdown: drawdown,
           cooldown_seconds: cooldown,
+          strategy_experiments: $("strategy-experiments").checked,
         });
       });
 

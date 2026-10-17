@@ -17,6 +17,9 @@ class Config:
     max_notional_equity: float = 1.0
     reward_risk: float = 2.0
     max_tranches: int = 3
+    scale_enabled: bool = True
+    confidence_gate_enabled: bool = True
+    min_trend_strength: float = 0.0
     unit_step: float = 0.0001
     starting_cash: float = 10000.0
     daily_loss_limit: float | None = None
@@ -30,6 +33,16 @@ class Config:
     def __post_init__(self):
         import math
 
+        for name in ("scale_enabled", "confidence_gate_enabled"):
+            if type(getattr(self, name)) is not bool:
+                raise ValueError(f"{name} must be a boolean")
+        if (
+            isinstance(self.min_trend_strength, bool)
+            or not isinstance(self.min_trend_strength, (int, float))
+            or not math.isfinite(self.min_trend_strength)
+            or self.min_trend_strength < 0
+        ):
+            raise ValueError("min_trend_strength must be finite and nonnegative")
         for name in (
             "poll_seconds",
             "model_timeout",
@@ -71,5 +84,5 @@ class Config:
             raise ValueError("Invalid position risk limits")
         if not 200 <= self.minimum_candles <= self.candle_limit <= 1000:
             raise ValueError("Invalid candle warmup")
-        if self.max_tranches < 1:
+        if type(self.max_tranches) is not int or self.max_tranches < 1:
             raise ValueError("max_tranches must be positive")

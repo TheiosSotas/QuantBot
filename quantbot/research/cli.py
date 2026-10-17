@@ -4,7 +4,7 @@ import argparse
 import json
 import re
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -116,6 +116,23 @@ def _candidates(args, config, dataset):
     return advisors
 
 
+def _strategy_experiment_matrix(advisors, config):
+    """Expand each provider into a control and three isolated strategy changes."""
+    variants = {
+        "control": config,
+        "no_scale": replace(config, scale_enabled=False),
+        "no_confidence": replace(config, confidence_gate_enabled=False),
+        "trend_filter": replace(config, min_trend_strength=0.25),
+    }
+    expanded, candidate_configs = {}, {}
+    for name, advisor in advisors.items():
+        for variant, candidate_config in variants.items():
+            candidate_name = f"{name}__{variant}"
+            expanded[candidate_name] = advisor
+            candidate_configs[candidate_name] = candidate_config
+    return expanded, candidate_configs
+
+
 def _experiment_arguments(parser):
     parser.add_argument("--data", type=Path, required=True, help="Frozen 1h dataset directory")
     parser.add_argument("--execution-data", type=Path, help="Validated 1m/5m dataset directory")
@@ -173,6 +190,11 @@ def main(argv=None):
     replay.add_argument("--advisor", choices=("cash", "rules", "numeric"), default="rules")
     comparison = commands.add_parser("compare", help="Independent candidate accounts on identical data")
     _experiment_arguments(comparison)
+    comparison.add_argument(
+        "--strategy-experiments",
+        action="store_true",
+        help="Compare each selected advisor with control, no-scale, no-confidence, and trend-filter variants",
+    )
     walk = commands.add_parser("walk-forward", help="Select only on validation, evaluate winner on next test")
     _experiment_arguments(walk)
     walk.add_argument("--train-size", type=int, required=True)
@@ -263,12 +285,17 @@ def main(argv=None):
                 export_run(result, args.output)
                 print(json.dumps(result["metrics"], ensure_ascii=False))
             elif args.command == "compare":
+                advisors = _candidates(args, config, hourly)
+                candidate_configs = None
+                if args.strategy_experiments:
+                    advisors, candidate_configs = _strategy_experiment_matrix(advisors, config)
                 report = compare(
                     hourly,
-                    _candidates(args, config, hourly),
+                    advisors,
                     config=config,
                     execution_data=minute,
                     output=args.output,
+                    candidate_configs=candidate_configs,
                     **options,
                 )
                 print(
