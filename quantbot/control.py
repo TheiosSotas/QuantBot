@@ -195,7 +195,11 @@ class Control:
                 try:
                     info = json.loads(self.paper_info.read_text(encoding="utf-8"))
                     port = int(info["port"])
-                    if 0 < port <= 65535 and info["pid"] == self.paper.pid:
+                    # paper_info is a fresh UUID path for this launch. Windows
+                    # venv python.exe redirects to a child whose PID differs
+                    # from Popen.pid; the live launcher plus its private ready
+                    # file identify the session without comparing those PIDs.
+                    if 0 < port <= 65535:
                         url = f"http://127.0.0.1:{port}"
                 except (OSError, ValueError, KeyError, TypeError):
                     pass

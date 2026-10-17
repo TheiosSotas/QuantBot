@@ -40,6 +40,37 @@ def test_page_and_status(server):
     assert not (control.root / "quantbot.sqlite3").exists()
 
 
+@pytest.mark.parametrize("worker_pid", [1234, 5678])
+def test_paper_dashboard_url_accepts_windows_python_redirector(server, worker_pid):
+    control, url = server
+    control.paper = Mock(pid=1234)
+    control.paper.poll.return_value = None
+    control.paper_info = control.runtime / "paper-current-launch.json"
+    control.paper_info.write_text(
+        json.dumps({"pid": worker_pid, "port": 43210, "url": "http://127.0.0.1:43210"}),
+        encoding="utf-8",
+    )
+
+    paper = requests.get(url + "/api/status", timeout=3).json()["paper"]
+    assert paper["running"] is True
+    assert paper["url"] == "http://127.0.0.1:43210"
+
+    control.paper.poll.return_value = 0
+    paper = requests.get(url + "/api/status", timeout=3).json()["paper"]
+    assert paper["running"] is False
+    assert paper["url"] is None
+
+
+@pytest.mark.parametrize("port", [0, 65536, "invalid"])
+def test_paper_dashboard_handoff_rejects_invalid_ports(server, port):
+    control, url = server
+    control.paper = Mock(pid=1234)
+    control.paper.poll.return_value = None
+    control.paper_info = control.runtime / "paper-current-launch.json"
+    control.paper_info.write_text(json.dumps({"pid": 5678, "port": port}), encoding="utf-8")
+    assert requests.get(url + "/api/status", timeout=3).json()["paper"]["url"] is None
+
+
 def test_cross_origin_and_missing_token_cannot_run_actions(server):
     control, url = server
     with patch.object(control, "action") as action:
