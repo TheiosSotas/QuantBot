@@ -1,5 +1,6 @@
 """Independent accounts and shared evaluation conditions for every challenger."""
 
+from dataclasses import asdict
 from pathlib import Path
 
 from .metrics import summarize
@@ -41,7 +42,16 @@ def hold_reference(dataset, execution_data, start, end, starting_cash):
     }
 
 
-def compare(dataset, advisors, *, config, execution_data=None, output=None, **options):
+def compare(
+    dataset,
+    advisors,
+    *,
+    config,
+    execution_data=None,
+    output=None,
+    candidate_configs=None,
+    **options,
+):
     if not isinstance(advisors, dict) or not advisors:
         raise ValueError("Provide a nonempty mapping of named advisors")
     for name in advisors:
@@ -53,6 +63,22 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
             )
         ):
             raise ValueError("Candidate names must use only ASCII letters, numbers, '_' and '-'")
+    if candidate_configs is None:
+        candidate_configs = {}
+    if not isinstance(candidate_configs, dict) or set(candidate_configs) - set(advisors):
+        raise ValueError("Candidate configs must be a mapping for known candidate names")
+    strategy_fields = {"scale_enabled", "confidence_gate_enabled", "min_trend_strength"}
+    baseline_config = asdict(config)
+    for name, candidate_config in candidate_configs.items():
+        if type(candidate_config) is not type(config):
+            raise ValueError(f"Candidate config for {name!r} must match the base config type")
+        candidate_values = asdict(candidate_config)
+        changed = {key for key in baseline_config if candidate_values.get(key) != baseline_config[key]}
+        if changed - strategy_fields:
+            raise ValueError(
+                f"Candidate config for {name!r} changes non-strategy settings: "
+                + ", ".join(sorted(changed - strategy_fields))
+            )
     target = Path(output) if output is not None else None
     compact = options.pop("compact", False)
     progress_callback = options.pop("progress_callback", None)
@@ -63,6 +89,7 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
     results = {}
     try:
         for name, advisor in advisors.items():
+            candidate_config = candidate_configs.get(name, config)
             run_options = dict(options)
             run_options["compact"] = compact
             if compact:
@@ -71,7 +98,13 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
                 run_options["progress_callback"] = lambda event, candidate=name: progress_callback(
                     {"advisor": candidate, **event}
                 )
-            result = run_replay(dataset, advisor, config=config, execution_data=execution_data, **run_options)
+            result = run_replay(
+                dataset,
+                advisor,
+                config=candidate_config,
+                execution_data=execution_data,
+                **run_options,
+            )
             results[name] = result
             if target is not None:
                 export_run(result, target / name)
@@ -86,7 +119,11 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
                 "assumptions": first["assumptions"],
             },
             "candidates": {
-                name: {"identity": result["advisor"], "metrics": result["metrics"]}
+                name: {
+                    "identity": result["advisor"],
+                    "config": result["config"],
+                    "metrics": result["metrics"],
+                }
                 for name, result in results.items()
             },
             "buy_and_hold_reference": hold_reference(

@@ -327,6 +327,9 @@ class Control:
             start, end, interval = parse_range(payload)
             config, controls = parse_settings(payload)
             model = payload.get("model", "")
+            experiments = payload.get("strategy_experiments", False)
+            if type(experiments) is not bool:
+                raise ValueError("Η σύγκριση παραλλαγών πρέπει να είναι ενεργή ή ανενεργή.")
             if model:
                 if interval != "1m":
                     raise ValueError(
@@ -375,6 +378,8 @@ class Control:
             ]
             if model:
                 args += ["--model", model, "--cache", self.root / "research-cache"]
+            if experiments:
+                args += ["--strategy-experiments"]
             if interval == "5m":
                 # A nonzero latency would wait 5m, exceeding the live 120s limit.
                 # This explicit zero-compute-latency assumption is for rules only.
@@ -383,6 +388,8 @@ class Control:
         label = "Επίδειξη — τεχνητές τιμές"
         if payload["action"] != "demo":
             label = f"{payload['start']} → {payload['end']} · {payload.get('model') or 'χωρίς AI'} · {payload.get('interval', '5m')}"
+            if payload.get("strategy_experiments", False):
+                label += " · 4 παραλλαγές στρατηγικής"
         atomic_json(output / "desktop-label.json", {"label": label, "settings": payload})
         with self.lock:
             self.job["report_url"] = "/reports/" + ident
@@ -422,6 +429,8 @@ class Control:
         if payload["action"] == "backtest":
             _, _, interval = parse_range(payload)
             parse_settings(payload)
+            if type(payload.get("strategy_experiments", False)) is not bool:
+                raise ValueError("Η σύγκριση παραλλαγών πρέπει να είναι ενεργή ή ανενεργή.")
             model = payload.get("model", "")
             if not isinstance(model, str) or len(model) > 200:
                 raise ValueError("Μη έγκυρο μοντέλο.")

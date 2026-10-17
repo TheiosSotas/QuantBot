@@ -1,5 +1,16 @@
 # Validation — 2026-10-17
 
+## Επαναλήψεις PAPER και παραλλαγές στρατηγικής — 2026-10-17
+
+- Τελική regression suite: **315 passed, 1 deselected σε 80.90 s**. Εξαιρέθηκε το αμετάβλητο αργό ετήσιο stress test. Ruff check/format: πέρασαν για 71 Python αρχεία. `git diff --check`: πέρασε.
+- Luna implementation/review με τελική ανασκόπηση του κύριου agent: structured retryability για connection/timeout/429/5xx, έως δύο υποβολές, backoff 5 s, ίδιο candle/revision και αρχικό wall/monotonic deadline. Ο κύριος agent εντόπισε ότι το transport budget χρειαζόταν επίσης μεταφορά μέχρι τον worker και ζήτησε/έλεγξε τη διόρθωση πριν από το release.
+- Tests καλύπτουν ανάκτηση με τρέχουσα τιμή/portfolio, αποτυχία δεύτερης προσπάθειας χωρίς τρίτη, HTTP 400/401 και invalid schema χωρίς retry, ακύρωση μετά από deadline/αλλαγή θέσης/κεριού, υπόλοιπο χρόνου στο πραγματικό ModelClient με ελεγχόμενο session και μηδενικά POST από ληγμένο queued job.
+- Strategy controls: no-confidence εξακολουθεί να περνά hard entry/risk filters, no-scale διατηρεί υπάρχον stop, trend gate δεν εμποδίζει CLOSE, LONG/SHORT protective stops λειτουργούν με όλα τα πειραματικά flags. Μη έγκυρα booleans/thresholds/max_tranches απορρίπτονται.
+- Matrix tests: ένας παράγοντας ανά παραλλαγή, ξεχωριστά effective configs, ίδια προεπιλογή PAPER, απόρριψη ασύγκριτων candidate κεφαλαίων. CLI και model/replay/cache tests πέρασαν.
+- Πραγματική compact CLI εκτέλεση σε **6 ώρες συνθετικών δεδομένων 1m**, με 8 υποψηφίους rules/numeric × 4 παραλλαγές, ολοκλήρωσε exports/αναφορά. Πρόκειται για δοκιμή λειτουργίας, όχι αξιολόγηση στρατηγικής ή πραγματικής αγοράς. Αναφορά: `E:\temp\quantbot-strategy-review-dfs611yt\comparison\report.html`.
+- Browser σε απομονωμένο προσωρινό control server: το νέο checkbox υποβάλλει `strategy_experiments: true` χωρίς overflow φόρμας. Η ενέργεια υποβολής παρεμποδίστηκε μόνο στη δοκιμή browser, ώστε να μην γίνει δικτυακή λήψη/πραγματικό backtest. Ξεχωριστά unit tests επαλήθευσαν το backend CLI flag. Η πραγματική αποθηκευμένη συνθετική αναφορά εμφανίζει 8 σειρές με διακριτές ελληνικές ονομασίες, τελικά ποσά και διευκρινίσεις execution timing. Ο προσωρινός server τερματίστηκε από το δικό του shutdown action.
+- Δεν εκκινήθηκε PAPER λογαριασμός, δεν άλλαξε το μοντέλο, δεν έγινε νέα πραγματική Qwen inference ή ετήσιο market backtest. Η τελική δοκιμή πραγματικών μοντέλων/δεδομένων παραμένει ξεχωριστή εργασία.
+
 ## Προληπτικό AI review με Luna και κύριο agent — 2026-10-17
 
 - Τελική regression suite: **283 passed, 1 deselected σε 72.86 s**. Εξαιρέθηκε μόνο το αμετάβλητο ετήσιο stress test. Ruff check και format check: πέρασαν για 69 Python αρχεία. `git diff --check`: πέρασε.

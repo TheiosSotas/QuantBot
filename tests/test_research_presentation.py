@@ -49,6 +49,16 @@ def test_final_amount_is_read_from_saved_equity_not_rounded_percentage():
     assert "26/01/2024" in page
 
 
+def test_strategy_variants_have_distinct_labels_and_execution_assumptions():
+    control = result()
+    control["execution_dataset"] = {"interval_ms": 60000}
+    page = comparison_html({"rules__control": control, "rules__no_scale": result()})
+    assert "Σταθεροί κανόνες · Αρχική στρατηγική" in page
+    assert "Σταθεροί κανόνες · Χωρίς προσθήκες" in page
+    assert "Ανάλυση εκτέλεσης: 1 λεπτά" in page
+    assert "0,25 ATR" in page and "5 δευτερόλεπτα" in page
+
+
 def test_positive_negative_and_open_position_totals_are_distinct():
     page = comparison_html(
         {"rules": result(), "numeric": result("numeric", ending=10451, total_return=0.0451)}

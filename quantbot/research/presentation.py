@@ -59,10 +59,35 @@ def comparison_html(results, *, reference=None, saved=False):
     )
     if saved:
         note += "<p class='muted'>Προβολή αποθηκευμένου backtest. Δεν έγινε νέα εκτέλεση ή αλλαγή αποτελεσμάτων.</p>"
+    interval = first_result.get("execution_dataset", {}).get("interval_ms")
+    if interval:
+        note += (
+            f"<p class='muted'>Ανάλυση εκτέλεσης: {_number(interval) / 60000:g} λεπτά. "
+            "Εκτέλεση στο επόμενο διαθέσιμο άνοιγμα κεριού μετά την απόφαση. "
+            "Το PAPER ελέγχει περίπου ανά 5 δευτερόλεπτα· το replay δεν αναπαράγει ακριβώς αυτές τις τιμές ή καθυστερήσεις.</p>"
+        )
+    if any("__" in name for name in shown):
+        note += (
+            "<p class='muted'>Πειραματικές παραλλαγές: αλλάζει ένας κανόνας κάθε φορά. "
+            "Το φίλτρο τάσης δοκιμάζει απόσταση EMA50/EMA200 τουλάχιστον 0,25 ATR, "
+            "χωρίς να έχει επιλεγεί ως βέλτιστη τιμή. Καμία παραλλαγή δεν ενεργοποιείται αυτόματα στο PAPER. "
+            "Στους κανόνες χωρίς AI η απενεργοποίηση του ορίου βεβαιότητας αναμένεται να μην αλλάζει αποφάσεις, "
+            "επειδή η σταθερή βαθμολογία τους είναι ήδη 1.</p>"
+        )
     for index, (name, result) in enumerate(shown.items()):
         metrics = result["metrics"]
         provider = _provider(result["advisor"])
-        label = html.escape(provider.get("model") or provider.get("model_id") or names.get(name, name))
+        base, _, variant = name.partition("__")
+        label = provider.get("model") or provider.get("model_id") or names.get(base, base)
+        variants = {
+            "control": "Αρχική στρατηγική",
+            "no_scale": "Χωρίς προσθήκες",
+            "no_confidence": "Χωρίς όριο βεβαιότητας",
+            "trend_filter": "Με φίλτρο ισχύος τάσης",
+        }
+        if variant:
+            label += " · " + variants.get(variant, variant)
+        label = html.escape(label)
         color = colors[index % len(colors)]
         initial, final = metrics["starting_cash"], metrics["ending_equity"]
         pnl = final - initial
