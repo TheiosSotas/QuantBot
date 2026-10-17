@@ -2,13 +2,11 @@
 
 import csv
 import hashlib
-import html
 import json
 import platform
 import shutil
 import subprocess
 from dataclasses import asdict, is_dataclass
-from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
@@ -160,55 +158,7 @@ def _export_compact_events(compact_directory, output):
         equity_stream.close()
 
 
-def comparison_html(results):
-    names, curves = list(results), [r["equity"] for r in results.values()]
-    all_rows = [row for rows in curves for row in rows]
-    low = min((row["equity"] for row in all_rows), default=0)
-    high = max((row["equity"] for row in all_rows), default=1)
-    first = min((row["observed_at"] for row in all_rows), default=0)
-    last = max((row["observed_at"] for row in all_rows), default=1)
-    colors = ("#22d3ee", "#a78bfa", "#34d399", "#fbbf24", "#fb7185")
-    first_result = next(iter(results.values()))
-    origin = first_result["dataset"]["first_timestamp"]
-    begin = datetime.fromtimestamp((origin + first_result["start_index"] * 3_600_000) / 1000, timezone.utc)
-    finish = datetime.fromtimestamp((origin + first_result["end_index"] * 3_600_000) / 1000, timezone.utc)
-    period = f"{begin:%Y-%m-%d %H:%M} έως {finish:%Y-%m-%d %H:%M} UTC (η λήξη δεν περιλαμβάνεται)"
-    synthetic = any(
-        result["dataset"].get("source", {}).get("type") == "SYNTHETIC" for result in results.values()
-    )
-    data_note = (
-        "<p><strong>ΣΥΝΘΕΤΙΚΑ ΔΕΔΟΜΕΝΑ — έλεγχος λογισμικού, χωρίς πραγματικές τιμές αγοράς.</strong></p>"
-        if synthetic
-        else ""
-    )
-    lines, table = [], []
-    for index, (name, rows) in enumerate(zip(names, curves)):
-        color = colors[index % len(colors)]
-        step = max(1, len(rows) // 500)
-        sampled = rows[::step]
-        if rows and sampled[-1] is not rows[-1]:
-            sampled += [rows[-1]]
-        points = " ".join(
-            f"{20 + (row['observed_at'] - first) / max(last - first, 0.001) * 960:.2f},"
-            f"{280 - (row['equity'] - low) / max(high - low, 0.001) * 260:.2f}"
-            for row in sampled
-        )
-        lines.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points}"/>')
-        metrics = results[name]["metrics"]
-        identity = results[name]["advisor"]
-        while identity.get("provider") == "cached-advisor":
-            identity = identity["advisor"]
-        model = identity.get("model", identity.get("model_id"))
-        display_name = f"{name} · {model}" if model else name
-        state = "Σφάλματα AI" if metrics["model_errors"] else "Ολοκληρώθηκε"
-        table.append(
-            f'<tr><td style="color:{color}">{html.escape(display_name)}</td><td>{metrics["total_return"] * 100:.3f}%</td>'
-            f"<td>{metrics['max_drawdown'] * 100:.3f}%</td><td>{metrics['trade_count']}</td>"
-            f"<td>{metrics['model_errors']}</td><td>{metrics['invalid_or_expired_decisions']}</td><td>{state}</td></tr>"
-        )
-    return f"""<!doctype html><html lang="el"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>QuantBot — Σύγκριση πειραμάτων</title><style>body{{background:#0b1020;color:#e2e8f0;font:16px system-ui;max-width:1100px;margin:auto;padding:24px}}section{{background:#121a2e;border:1px solid #26324b;border-radius:12px;padding:20px;margin:20px 0;overflow:auto}}table{{width:100%;border-collapse:collapse}}td,th{{padding:12px;text-align:left;border-bottom:1px solid #26324b}}svg{{width:100%;height:300px}}a{{color:#22d3ee}}.note{{color:#b5c0d5}}</style>
-<h1>QuantBot — Σύγκριση πειραμάτων</h1>{data_note}<p>{period}</p><p class="note">Μικτή προσομοιωμένη απόδοση πριν από προμήθειες/funding. Κάθε υποψήφιος έχει ανεξάρτητο λογαριασμό. Δεν πρόκειται για πρόβλεψη πραγματικής κερδοφορίας.</p>
-<section><h2>Συνολική αξία λογαριασμού</h2><p>${low:,.2f} — ${high:,.2f}. Περιλαμβάνει ανοιχτό PnL. Το γράφημα αραιώνει δείγματα· τα metrics χρησιμοποιούν ολόκληρη την καμπύλη.</p><svg viewBox="0 0 1000 300" role="img" aria-label="Καμπύλες κεφαλαίου">{"".join(lines)}</svg></section>
-<section><table><thead><tr><th>Υποψήφιος</th><th>Απόδοση</th><th>Μέγιστη πτώση</th><th>Κλεισίματα</th><th>Σφάλματα AI</th><th>Απορρίψεις αποφάσεων</th><th>Κατάσταση</th></tr></thead><tbody>{"".join(table)}</tbody></table><p class="note">cash: χωρίς συναλλαγές · rules: σταθεροί κανόνες · numeric: κανόνες με αριθμητικό φίλτρο. Οι απορρίψεις περιλαμβάνουν περιορισμούς ρίσκου, ληγμένες αποφάσεις και άλλα φίλτρα· δεν αποτελούν όλες σφάλμα.</p></section>
-<p class="note">Οι παραδοχές χρόνου, εκτέλεσης και OHLC διαδρομών βρίσκονται στο run.json κάθε υποψηφίου. Η συντηρητική διαδρομή είναι τοπική εκτίμηση μεταξύ δύο σεναρίων, όχι εγγυημένο καθολικό χειρότερο αποτέλεσμα.</p><p><a href="comparison.json">Αναλυτική σύγκριση JSON</a></p></html>"""
+def comparison_html(results, *, reference=None):
+    from .presentation import comparison_html as render
+
+    return render(results, reference=reference)

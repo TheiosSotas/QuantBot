@@ -105,6 +105,34 @@ class Control:
         self.job = {"running": False, "id": None, "stage": "Έτοιμο", "error": None, "report_url": None}
         self.closed = False
         self.server = None
+        self.report_cache = {}
+
+    def report_html(self, directory):
+        from .research.presentation import saved_comparison_html
+
+        directory = Path(directory).resolve()
+        summary = directory / "comparison.json"
+        candidates = json.loads(summary.read_text(encoding="utf-8"))["candidates"]
+        if any(not re.fullmatch(r"[A-Za-z0-9_-]+", name) for name in candidates):
+            raise ValueError("Invalid saved candidate name")
+        files = [summary] + [
+            directory / name / file
+            for name in candidates
+            for file in ("run.json", "metrics.json", "equity.csv")
+        ]
+        if any(not file.resolve().is_relative_to(directory) for file in files):
+            raise ValueError("Invalid saved report path")
+        fingerprint = tuple((file.stat().st_mtime_ns, file.stat().st_size) for file in files)
+        key = (str(directory), fingerprint)
+        with self.lock:
+            if key in self.report_cache:
+                return self.report_cache[key]
+        body = saved_comparison_html(directory).encode("utf-8")
+        with self.lock:
+            if len(self.report_cache) >= 8:
+                self.report_cache.pop(next(iter(self.report_cache)))
+            self.report_cache[key] = body
+        return body
 
     def heartbeat(self):
         while not self.closed:
@@ -340,6 +368,8 @@ class Control:
                 output,
                 "--starting-cash",
                 str(config.starting_cash),
+                "--baselines",
+                "rules,numeric",
                 "--compact",
                 *controls,
             ]
@@ -551,7 +581,23 @@ def make_server(control, port=0):
                             if path.suffix == ".json"
                             else "text/html; charset=utf-8"
                         )
-                        self.send(200, path.read_bytes(), kind)
+                        if path.suffix == ".html" and path.with_name("comparison.json").is_file():
+                            try:
+                                body = control.report_html(path.parent)
+                            except (OSError, ValueError, KeyError, TypeError) as exc:
+                                self.send(
+                                    503,
+                                    json.dumps(
+                                        {
+                                            "error": f"Δεν ήταν δυνατή η ανάγνωση των αποθηκευμένων αποτελεσμάτων: {exc}"
+                                        },
+                                        ensure_ascii=False,
+                                    ).encode(),
+                                )
+                                return
+                        else:
+                            body = path.read_bytes()
+                        self.send(200, body, kind)
                 else:
                     self.send(404, b"{}")
             else:

@@ -98,7 +98,7 @@ def compare(dataset, advisors, *, config, execution_data=None, output=None, **op
         if target is not None:
             write_json(target / "comparison.json", report)
             with (target / "report.html").open("x", encoding="utf-8") as stream:
-                stream.write(comparison_html(results))
+                stream.write(comparison_html(results, reference=report["buy_and_hold_reference"]))
             compact_root = target / ".compact"
             if compact_root.exists() and not any(compact_root.iterdir()):
                 compact_root.rmdir()
