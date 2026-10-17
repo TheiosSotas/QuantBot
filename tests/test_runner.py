@@ -38,6 +38,21 @@ def test_model_failure_cannot_skip_breached_stop(config, engine):
     assert engine.state["portfolio"]["cash_usdt"] == 9980
 
 
+def test_failed_schema_repair_is_audited_and_does_not_skip_existing_stop(config, engine):
+    seed(engine)
+    worker = FakeWorker()
+    worker.results.put(
+        Result(
+            Job("DECISION", snapshot(), {}, NOW, 0),
+            error="ModelDecisionError: confidence must be between 0 and 1",
+        )
+    )
+    make_runner(config, engine, worker).step()
+    assert engine.state["portfolio"]["side"] == "FLAT"
+    assert engine.state["portfolio"]["cash_usdt"] == 9980
+    assert engine.store.decision_history()[-1]["reason_code"] == "INVALID_MODEL_OUTPUT"
+
+
 def test_bad_indicators_cannot_skip_breached_stop(config, engine):
     seed(engine)
     make_runner(config, engine, data=snapshot(80, atr=0)).step()

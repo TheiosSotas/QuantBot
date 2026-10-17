@@ -360,6 +360,7 @@ def run_replay(
     advice_errors = 0
     latencies = []
     ambiguous_count = sensitive_count = 0
+    recovered_outputs = invalid_output_attempts = 0
     errors = 0
 
     total_bars = len(bars)
@@ -442,6 +443,11 @@ def run_replay(
             pending = {"context": context, "advice": advice, "ready_at": now + simulated_latency}
             latencies.append(latency)
             advice_errors += bool(advice.error)
+            validation = advice.as_dict()["metadata"].get("output_validation", {})
+            recovered_outputs += bool(validation.get("recovered"))
+            invalid_output_attempts += sum(
+                attempt.get("validation") == "invalid" for attempt in validation.get("attempts", [])
+            )
             advice_row = {
                 "requested_at": now,
                 "ready_at": pending["ready_at"],
@@ -521,6 +527,8 @@ def run_replay(
     metrics.update(
         {
             "model_errors": advice_errors if compact else sum(bool(row["error"]) for row in advice_rows),
+            "model_output_repairs": recovered_outputs,
+            "invalid_model_output_attempts": invalid_output_attempts,
             "processed_decision_failures": errors,
             "advice_count": len(latencies),
             "invalid_or_expired_decisions": rejected_decisions,

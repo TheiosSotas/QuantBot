@@ -90,7 +90,9 @@ class Runner:
                 self.engine.health(model_status="ERROR", model_error=result.error)
                 if result.job.kind == "DECISION":
                     reason = (
-                        "INVALID_MODEL_OUTPUT" if result.error.startswith("ValueError:") else "MODEL_ERROR"
+                        "INVALID_MODEL_OUTPUT"
+                        if result.error.startswith(("ValueError:", "ModelDecisionError:"))
+                        else "MODEL_ERROR"
                     )
                     self._audit_failure(
                         result, reason, quote, latest_candle=snapshot.candle_id, detail=result.error

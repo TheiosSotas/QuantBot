@@ -1,5 +1,15 @@
 # Validation — 2026-10-17
 
+## Ανάκτηση άκυρης μορφής απόφασης AI — 2026-10-17
+
+- Regression suite: **270 passed, 1 deselected σε 66.14 s**. Εξαιρέθηκε το αργό ετήσιο stress test. Ruff check/format: πέρασαν.
+- Αναπαραγωγή του ορατού failure class με `confidence: 90` και `scale_in_signal: "false"`. Η αρχική έξοδος απορρίπτεται αυστηρά, ζητείται μία διόρθωση και γίνεται δεκτή μόνο νέα έγκυρη έξοδος. Το αρχικό context/portfolio παραμένει ίδιο.
+- Καλύπτονται δύο μόνιμα άκυρες απαντήσεις χωρίς fallback, άκυρο JSON, πρώτο έγκυρο output χωρίς retry, κοινό χρονικό περιθώριο χωρίς νέο πλήρες timeout, αποτυχία σύνδεσης χωρίς schema retry και αλλαγή model digest πριν από τη διόρθωση.
+- Πραγματικός worker PAPER με ελεγχόμενες HTTP απαντήσεις επιστρέφει διορθωμένο Decision. Αποτυχημένη διόρθωση καταγράφεται ως INVALID_MODEL_OUTPUT και υπάρχον breached stop κλείνει κανονικά.
+- Loopback HTTP + κοινός replay engine + compact export + immutable cache: δύο POST (άκυρο/έγκυρο), model_errors=0, model_output_repairs=1, πλήρης διατήρηση trace και measured latency. Offline cache replay παρήγαγε τα ίδια metrics χωρίς GET ή POST. Το digest ελέγχθηκε πριν και από τις δύο προσπάθειες.
+- Ελέγχθηκε τοπικά ότι δεν λειτουργεί Ollama server και δεν υπάρχουν εγκατεστημένα Qwen weights σε αυτόν τον host (υπάρχει μόνο διαφορετικό cloud tag). Δεν έγινε πραγματική Qwen inference, cloud κλήση ή λήψη βαρών. Η επιβεβαίωση του πραγματικού μοντέλου/έκδοσης Ollama του φίλου πρέπει να γίνει στο δικό του PC.
+- Η φωτογραφία δείχνει PAPER εκκίνηση (`python main.py` / PAPER trading dashboard), όχι ερευνητικό runner. Η διόρθωση μπήκε στο κοινό ModelClient που χρησιμοποιούν και οι δύο λειτουργίες.
+
 ## Παρουσίαση τελικού κεφαλαίου ανά στρατηγική — 2026-10-17
 
 - Regression suite: **259 passed, 1 deselected σε 64.26 s**. Εξαιρέθηκε το αργό ετήσιο stress test· δεν άλλαξε η στρατηγική ή ο υπολογισμός metrics.
