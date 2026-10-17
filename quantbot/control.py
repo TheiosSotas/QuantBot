@@ -610,6 +610,16 @@ def make_server(control, port=0):
                 or self.headers.get("Origin") != origin
                 or not secrets.compare_digest(self.headers.get("X-QuantBot-Token", ""), control.token)
             ):
+                # Drain a small declared body before closing. Otherwise Windows
+                # can reset the socket and hide the 403 behind a connection error.
+                # Never parse or execute unauthenticated data; bound size and wait.
+                try:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if 0 < length <= 16_384:
+                        self.connection.settimeout(2)
+                        self.rfile.read(length)
+                except (OSError, ValueError):
+                    pass
                 self.send(403, b"{}")
                 return
             if self.path != "/api/action":
