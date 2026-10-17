@@ -71,14 +71,98 @@ def test_first_valid_output_is_not_retried(config):
     assert request["options"]["temperature"] == 0
 
 
-def test_retry_does_not_receive_a_new_full_timeout(config):
+@pytest.mark.parametrize("raw", ["invalid", json.dumps(decision())])
+def test_retry_does_not_receive_a_new_full_timeout(config, raw):
     config = replace(config, model_timeout=10)
-    session = Session(["invalid"])
-    # Deadline=10, first response consumes 11 seconds: no second request.
-    with patch("quantbot.ai.time.perf_counter", side_effect=[0, 0, 0, 0, 11, 11]):
-        with pytest.raises(ModelDecisionError):
+    session = Session([raw])
+    clock = [0]
+    original_post = session.post
+
+    def late_post(*args, **kwargs):
+        response = original_post(*args, **kwargs)
+        clock[0] = 11
+        return response
+
+    session.post = late_post
+    # A read timeout is not a total-duration limit: reject even a returned response.
+    with patch("quantbot.ai.time.perf_counter", side_effect=lambda: clock[0]):
+        with pytest.raises(requests.Timeout, match="shared decision time budget"):
             ModelClient(config, session).consult(snapshot(), {})
     assert len(session.requests) == 1
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "[" * 1500 + "]" * 1500,
+        json.dumps(decision()).replace('"confidence": 0.9', '"confidence": NaN'),
+        json.dumps(decision()).replace('"action": "BUY"', '"action": "SELL", "action": "BUY"'),
+        json.dumps(decision()).replace('"confidence": 0.9', '"confidence": ' + "9" * 400),
+        json.dumps({**decision(), "thesis": "a" * 4001}),
+    ],
+)
+def test_malformed_or_ambiguous_json_receives_one_correction(config, raw):
+    session = Session([raw, json.dumps(decision())])
+    result, trace = ModelClient(config, session).consult_with_trace(snapshot(), {})
+    assert result.action == "BUY" and trace["recovered"] is True
+    assert [row["validation"] for row in trace["attempts"]] == ["invalid", "valid"]
+    assert len(session.requests) == 2
+
+
+@pytest.mark.parametrize("fields", [{"done": False}, {"done_reason": "length"}, {"error": "failed"}])
+def test_incomplete_generation_is_rejected_even_when_inner_json_is_valid(config, fields):
+    responses = iter([{"response": json.dumps(decision()), **fields}, {"response": json.dumps(decision())}])
+    session = SimpleNamespace(
+        post=lambda *args, **kwargs: SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: next(responses)
+        )
+    )
+    result, trace = ModelClient(config, session).consult_with_trace(snapshot(), {})
+    assert result.action == "BUY" and trace["recovered"] is True
+    assert trace["attempts"][0]["validation"] == "invalid"
+
+
+def test_slow_body_is_stopped_by_elapsed_budget_and_response_is_closed(config):
+    clock, closed, reads = [0], [], []
+
+    def trickle(chunk_size):
+        assert chunk_size == 1
+        for part in b'{"response": "':
+            clock[0] += 4
+            reads.append(part)
+            yield bytes([part])
+
+    response = SimpleNamespace(
+        raise_for_status=lambda: None, iter_content=trickle, close=lambda: closed.append(True)
+    )
+    session = SimpleNamespace(post=lambda *args, **kwargs: response)
+    with patch("quantbot.ai.time.perf_counter", side_effect=lambda: clock[0]):
+        with pytest.raises(requests.Timeout) as failure:
+            ModelClient(replace(config, model_timeout=10), session).consult(snapshot(), {})
+    assert len(reads) == 3 and closed == [True]
+    assert len(failure.value.diagnostics["attempts"]) == 1
+    assert failure.value.diagnostics["attempts"][0]["validation"] == "transport_error"
+
+
+def test_oversized_body_is_bounded_and_both_attempts_are_closed(config):
+    from quantbot.ai import MAX_RESPONSE_BYTES
+
+    closed, reads = [], []
+
+    def body(chunk_size):
+        for _ in range(MAX_RESPONSE_BYTES + 20):
+            reads.append(True)
+            yield b" "
+
+    session = SimpleNamespace(
+        post=lambda *args, **kwargs: SimpleNamespace(
+            raise_for_status=lambda: None, iter_content=body, close=lambda: closed.append(True)
+        )
+    )
+    with pytest.raises(ModelDecisionError) as error:
+        ModelClient(config, session).consult(snapshot(), {})
+    assert len(reads) == 2 * (MAX_RESPONSE_BYTES + 1) and len(closed) == 2
+    assert all("body size" in row["error"] for row in error.value.diagnostics["attempts"])
 
 
 def test_unavailable_ollama_does_not_trigger_schema_retry(config):
@@ -87,6 +171,24 @@ def test_unavailable_ollama_does_not_trigger_schema_retry(config):
         ModelClient(config, session).consult(snapshot(), {})
     assert len(session.requests) == 1
     assert error.value.diagnostics["attempts"][0]["validation"] == "transport_error"
+
+
+def test_http_error_closes_streamed_response_without_schema_retry(config):
+    closed, calls = [], []
+
+    def reject():
+        raise requests.HTTPError("503 Service Unavailable")
+
+    response = SimpleNamespace(raise_for_status=reject, close=lambda: closed.append(True))
+
+    def post(*args, **kwargs):
+        calls.append(kwargs)
+        return response
+
+    with pytest.raises(requests.HTTPError) as failure:
+        ModelClient(config, SimpleNamespace(post=post)).consult(snapshot(), {})
+    assert len(calls) == 1 and closed == [True]
+    assert failure.value.diagnostics["attempts"][0]["validation"] == "transport_error"
 
 
 def test_model_identity_is_checked_again_before_correction(config):

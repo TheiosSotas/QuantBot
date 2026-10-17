@@ -365,6 +365,9 @@ class OllamaAdvisor(Advisor):
         self.endpoint = getattr(client_config, "ollama_url", config.ollama_url)
         self.symbol = getattr(client_config, "symbol", config.symbol)
         self.timeframe = getattr(client_config, "timeframe", config.timeframe)
+        self.model_timeout = float(
+            getattr(client_config, "model_timeout", getattr(config, "model_timeout", 120.0))
+        )
         self._model_digest = model_digest
         self._digest_source = "explicit" if model_digest else "unresolved"
         self._model_details = {}
@@ -395,6 +398,7 @@ class OllamaAdvisor(Advisor):
             "endpoint": self._safe_endpoint(self.endpoint),
             "symbol": self.symbol,
             "timeframe": self.timeframe,
+            "model_timeout_seconds": self.model_timeout,
             "request_template_hash": template_hash,
             "options": copy.deepcopy(request.get("options", {})),
             "runtime": {"python": platform.python_version(), "requests": _package_version("requests")},

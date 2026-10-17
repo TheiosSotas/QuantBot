@@ -104,8 +104,8 @@ DECISION_SCHEMA = {
         "market_regime": {"type": "string", "enum": list(REGIMES)},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "scale_in_signal": {"type": "boolean"},
-        "thesis": {"type": "string"},
-        "copilot_commentary": {"type": "string"},
+        "thesis": {"type": "string", "maxLength": 4000},
+        "copilot_commentary": {"type": "string", "maxLength": 4000},
     },
     "required": ["action", "market_regime", "confidence", "scale_in_signal", "thesis", "copilot_commentary"],
 }

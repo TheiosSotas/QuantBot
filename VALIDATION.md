@@ -1,5 +1,15 @@
 # Validation — 2026-10-17
 
+## Προληπτικό AI review με Luna και κύριο agent — 2026-10-17
+
+- Τελική regression suite: **283 passed, 1 deselected σε 72.86 s**. Εξαιρέθηκε μόνο το αμετάβλητο ετήσιο stress test. Ruff check και format check: πέρασαν για 69 Python αρχεία. `git diff --check`: πέρασε.
+- Δύο Luna subagents: read-only review AI/worker και research/cache. Ο κύριος agent αποδέχθηκε και έλεγξε το timeout cache-key fix της Luna, με regression test που αποδεικνύει νέα επιτυχή κλήση μετά από αποθηκευμένη αποτυχία διαφορετικού timeout.
+- Νέα tests: υπερβολικό βάθος JSON, διπλά action fields, NaN, τεράστιος αριθμός και κείμενο πέρα από το όριο μπαίνουν στη μία correction. Μη ολοκληρωμένη generation/τερματισμός μήκους/error δεν γίνονται δεκτά ακόμη και με parseable εσωτερικό JSON.
+- Ελεγχόμενος slow-body iterator περνά το elapsed deadline: απορρίπτεται με transport timeout, χωρίς δεύτερη generation, και το response κλείνει. Απόκριση που επιστρέφει μετά το deadline απορρίπτεται ακόμη και αν περιέχει έγκυρη απόφαση.
+- Body άνω των 256 KiB διακόπτεται, με δύο μόνο bounded attempts και κλειστά responses. HTTP 503: μία μόνο κλήση, close και diagnostics, χωρίς schema retry. Ο δεύτερος έλεγχος της Luna εντόπισε αυτό το close path πριν το commit.
+- Τα πραγματικά loopback HTTP/replay/cache tests εξακολουθούν να περνούν. Δεν έγινε πραγματική Qwen inference ή εγκατάσταση μοντέλου. Τα αποτελέσματα αποδεικνύουν συμπεριφορά κώδικα υπό ελεγχόμενες απαντήσεις, όχι μηδενική πιθανότητα αποτυχίας μοντέλου ή trading performance.
+- Το Requests socket timeout παραμένει όριο αδράνειας, όχι εξαναγκασμένη ακύρωση transport σε ακριβές wall-clock deadline. Η σταδιακή ανάγνωση προσθέτει ελέγχους χρόνου ανάμεσα στα chunks· μπλοκαρισμένο read/headers εξακολουθεί να εξαρτάται από το socket timeout. Βλ. `AI-RELIABILITY-REVIEW.md`.
+
 ## Ανάκτηση άκυρης μορφής απόφασης AI — 2026-10-17
 
 - Regression suite: **270 passed, 1 deselected σε 66.14 s**. Εξαιρέθηκε το αργό ετήσιο stress test. Ruff check/format: πέρασαν.
