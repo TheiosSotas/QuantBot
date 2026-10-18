@@ -49,12 +49,28 @@ class Runner:
             detail=detail,
         )
 
+    def _consume_warmup(self, result):
+        if result.job.kind != "WARMUP":
+            return False
+        self.engine.health(
+            model_status="WARMUP_FAILED" if result.error else "READY",
+            model_error=result.error or None,
+            model_message="Η φόρτωση AI απέτυχε. Χρησιμοποιήστε τον Έλεγχο AI στο κέντρο ελέγχου."
+            if result.error
+            else "Το μοντέλο φορτώθηκε. Αναμονή έγκυρης απόφασης.",
+        )
+        if result.error:
+            logging.warning("Model warmup failed: %s", result.error)
+        return True
+
     def step(self):
         try:
             quote = self.market.fetch_quote()
         except Exception as exc:
             self.engine.health(status="DATA_ERROR", error=str(exc))
             for result in drain_results(self.worker):
+                if self._consume_warmup(result):
+                    continue
                 if result.job.kind == "DECISION":
                     self._audit_failure(result, "INVALID_MARKET_DATA", None, detail=str(exc))
                 elif not result.error:
@@ -79,6 +95,8 @@ class Runner:
             self.engine.health(status="DATA_ERROR", error=str(exc))
             # Discard decisions that cannot be checked against a current closed candle.
             for result in drain_results(self.worker):
+                if self._consume_warmup(result):
+                    continue
                 if result.job.kind == "LESSON" and not result.error:
                     self.engine.add_lesson(result.value)
                 elif result.job.kind == "DECISION":
@@ -89,9 +107,15 @@ class Runner:
             quote = self.market.fetch_quote()
             self._remember_loss(self.engine.on_quote(quote, self.clock()), snapshot)
         for result in drain_results(self.worker):
+            if self._consume_warmup(result):
+                continue
             if result.error:
                 logging.warning("Model job failed: %s", result.error)
-                self.engine.health(model_status="ERROR", model_error=result.error)
+                self.engine.health(
+                    model_status="ERROR",
+                    model_error=result.error,
+                    model_message="Το AI δεν έδωσε έγκυρη απόφαση. Αν δεν απομένει χρόνος για επανάληψη, περιμένουμε το επόμενο ωριαίο κερί. Οι τιμές και τα stop ελέγχονται ανεξάρτητα.",
+                )
                 if result.job.kind == "DECISION":
                     retry = self.retry_state
                     same_retry = retry is not None and retry["candle_id"] == result.job.snapshot.candle_id
@@ -110,6 +134,10 @@ class Runner:
                     if can_retry:
                         retry["retry_at"] = self.clock() + MODEL_RETRY_BACKOFF_SECONDS
                         retry["last_error"] = result.error
+                        self.engine.health(
+                            model_status="RETRY_WAIT",
+                            model_message="Προσωρινή αποτυχία AI. Επανάληψη σε 5 δευτερόλεπτα.",
+                        )
                         self._audit_failure(
                             result,
                             "MODEL_ERROR",
@@ -148,7 +176,13 @@ class Runner:
                 latest_candle=snapshot.candle_id,
             )
             logging.info("Model result: %s", outcome)
-            self.engine.health(model_status=outcome, model_error=None)
+            self.engine.health(
+                model_status=outcome,
+                model_error=None,
+                model_message="Το AI πρότεινε αναμονή."
+                if outcome == "HOLD"
+                else f"Έλεγχος απόφασης AI: {outcome}",
+            )
             after = self.engine.snapshot()
             if after["trades"] and after["trades"] != before["trades"]:
                 self._remember_loss(after["trades"][0], snapshot)
@@ -156,6 +190,11 @@ class Runner:
         last = state["last_decision_candle"]
         retry = self.retry_state
         if retry is not None and retry["candle_id"] != snapshot.candle_id:
+            self.engine.health(
+                model_status="CANCELLED",
+                model_error=None,
+                model_message="Ακυρώθηκε η παλιά απόφαση: έκλεισε νέο κερί. Αναμονή διαθέσιμου AI για νέα αξιολόγηση.",
+            )
             self.engine.audit_rejection(
                 "STALE_CANDLE",
                 now=self.clock(),
@@ -169,6 +208,10 @@ class Runner:
             self.retry_state = None
             retry = None
         if retry is not None and self.clock() >= retry["deadline"]:
+            self.engine.health(
+                model_status="EXPIRED",
+                model_message="Έληξε ο χρόνος απόφασης AI. Εκπρόθεσμες απαντήσεις απορρίπτονται· νέα προσπάθεια στο επόμενο κερί.",
+            )
             self.engine.audit_rejection(
                 "MODEL_ERROR",
                 now=self.clock(),
@@ -182,6 +225,10 @@ class Runner:
             self.retry_state = None
             retry = None
         if retry is not None and time.monotonic() >= retry["deadline_monotonic"]:
+            self.engine.health(
+                model_status="EXPIRED",
+                model_message="Έληξε ο χρόνος απόφασης AI. Εκπρόθεσμες απαντήσεις απορρίπτονται· νέα προσπάθεια στο επόμενο κερί.",
+            )
             self.engine.audit_rejection(
                 "MODEL_ERROR",
                 now=self.clock(),
@@ -195,6 +242,11 @@ class Runner:
             self.retry_state = None
             retry = None
         if retry is not None and state["position_revision"] != retry["revision"]:
+            self.engine.health(
+                model_status="CANCELLED",
+                model_error=None,
+                model_message="Ακυρώθηκε η επανάληψη AI επειδή άλλαξε η θέση. Αναμονή επόμενου κεριού.",
+            )
             self.engine.audit_rejection(
                 "POSITION_CHANGED",
                 now=self.clock(),
@@ -225,7 +277,9 @@ class Runner:
             if self.worker.submit(job):
                 retry["submissions"] += 1
                 retry["retry_at"] = None
-                self.engine.health(model_status="PENDING", model_error=None)
+                self.engine.health(
+                    model_status="PENDING", model_error=None, model_message="Αναμονή απάντησης AI."
+                )
         elif retry is None and (
             self.worker.ready()
             and self.last_requested_candle != snapshot.candle_id
@@ -256,7 +310,9 @@ class Runner:
                     "retry_at": None,
                     "last_error": None,
                 }
-                self.engine.health(model_status="PENDING")
+                self.engine.health(
+                    model_status="PENDING", model_error=None, model_message="Αναμονή απάντησης AI."
+                )
         elif retry is None and self.worker.ready() and self.pending_lesson:
             if self.worker.submit(self.pending_lesson):
                 self.pending_lesson = None
@@ -367,6 +423,7 @@ def main(argv=None):
         config = Config(
             data_dir=args.data_dir.resolve(),
             model=args.model,
+            model_keep_alive_seconds=7200,
             daily_loss_limit=args.daily_loss_limit,
             max_account_drawdown=args.max_account_drawdown,
             cooldown_seconds=args.cooldown_seconds,
@@ -418,6 +475,12 @@ def main(argv=None):
         server_thread = threading.Thread(target=server.serve_forever, name="quantbot-dashboard", daemon=True)
         server_thread.start()
         worker.start()
+        worker.submit(Job("WARMUP", None, {}, time.time(), 0))
+        engine.health(
+            model_status="WARMING_UP",
+            model_error=None,
+            model_message="Φόρτωση μοντέλου AI πριν από την πρώτη απόφαση.",
+        )
         url = f"http://127.0.0.1:{server.server_address[1]}"
         logging.info("PAPER trading dashboard: %s | model=%s", url, config.model)
         if ready_file is not None:

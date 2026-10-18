@@ -391,10 +391,11 @@
         document.getElementById('kpi-equity').innerText = "$" + data.portfolio.total_equity.toLocaleString('en-US', {minimumFractionDigits: 2});
 
         document.getElementById('health-banner').textContent =
-          data.system.status + ' | AI: ' + data.system.model_status +
+          (data.system.status === 'ONLINE' ? 'Τιμές αγοράς: ONLINE' : data.system.status) + ' | AI: ' + data.system.model_status +
           ' | Protection checked: ' + (data.system.last_protection_at ? new Date(data.system.last_protection_at * 1000).toLocaleTimeString() : 'waiting') +
           (data.system.error ? ' | ' + data.system.error : '') +
           (data.system.model_error ? ' | AI error: ' + data.system.model_error : '') +
+          (data.system.model_message ? ' | ' + data.system.model_message : '') +
           (data.system.csv_warning ? ' | CSV warning: ' + data.system.csv_warning : '');
         const unPnl = data.portfolio.unrealized_pnl;
         const pnlEl = document.getElementById('kpi-pnl');

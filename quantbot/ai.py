@@ -89,6 +89,7 @@ class ModelClient:
         return {
             "model": self.config.model,
             "stream": False,
+            "keep_alive": self.config.model_keep_alive_seconds,
             "format": copy.deepcopy(DECISION_SCHEMA),
             "system": (
                 "Analyze a SIMULATED BTC perpetual position using only the supplied observations. "
@@ -118,6 +119,31 @@ class ModelClient:
     def consult(self, snapshot, portfolio, *, timeout_seconds=None):
         decision, _trace = self.consult_with_trace(snapshot, portfolio, timeout_seconds=timeout_seconds)
         return decision
+
+    def warmup(self):
+        """Load weights before starting a decision's freshness budget; never trade."""
+        started = time.perf_counter()
+        response = None
+        try:
+            response = self.session.post(
+                self.config.ollama_url,
+                json={
+                    "model": self.config.model,
+                    "stream": False,
+                    "keep_alive": self.config.model_keep_alive_seconds,
+                },
+                timeout=(5, self.config.model_warmup_timeout),
+                stream=True,
+            )
+            response.raise_for_status()
+            data = _read_envelope(response, started + self.config.model_warmup_timeout)
+            if not isinstance(data, dict) or data.get("error") or data.get("done") is not True:
+                raise ValueError("Ollama did not complete model loading")
+            return {"seconds": time.perf_counter() - started}
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
 
     def consult_with_trace(self, snapshot, portfolio, *, before_attempt=None, timeout_seconds=None):
         """At most one repair using the same immutable context and shared budget.
@@ -246,6 +272,7 @@ class ModelClient:
             json={
                 "model": self.config.model,
                 "stream": False,
+                "keep_alive": self.config.model_keep_alive_seconds,
                 "format": schema,
                 "prompt": json.dumps(
                     {
@@ -316,7 +343,9 @@ class ModelWorker:
             return False
 
     def ready(self):
-        return not self.busy.is_set() and self.jobs.empty()
+        # A dequeued warmup remains unfinished even before busy is set.
+        with self.jobs.mutex:
+            return not self.busy.is_set() and self.jobs.unfinished_tasks == 0
 
     def _run(self):
         while not self.stop_event.is_set():
@@ -326,7 +355,9 @@ class ModelWorker:
                 continue
             self.busy.set()
             try:
-                if job.kind == "DECISION":
+                if job.kind == "WARMUP":
+                    value = self.client.warmup()
+                elif job.kind == "DECISION":
                     if job.deadline_monotonic is None:
                         value = self.client.consult(job.snapshot, job.portfolio)
                     else:

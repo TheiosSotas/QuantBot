@@ -10,6 +10,8 @@ class Config:
     minimum_candles: int = 600
     poll_seconds: float = 5.0
     model_timeout: float = 120.0
+    model_keep_alive_seconds: float = 300.0
+    model_warmup_timeout: float = 300.0
     max_decision_age: float = 120.0
     max_quote_age: float = 15.0
     risk_per_tranche: float = 0.01
@@ -46,6 +48,8 @@ class Config:
         for name in (
             "poll_seconds",
             "model_timeout",
+            "model_keep_alive_seconds",
+            "model_warmup_timeout",
             "max_decision_age",
             "max_quote_age",
             "risk_per_tranche",

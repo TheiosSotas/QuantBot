@@ -1,5 +1,13 @@
 # Changelog
 
+## Προφόρτωση μοντέλου και διάγνωση PAPER ReadTimeout — 2026-10-18
+
+- Ασύγχρονο WARMUP πριν από την πρώτη trading απόφαση, με χωριστό budget φόρτωσης. Το κύριο loop εξακολουθεί να ενημερώνει τιμές/stop. Η κατανάλωση αποτελέσματος WARMUP καλύπτει και διαδρομές αποτυχίας quote/indicators χωρίς να το μετατρέπει σε θέση ή post-mortem.
+- Ρητό Ollama keep_alive: δύο ώρες για PAPER/διαγνωστικό έλεγχο, πέντε λεπτά για το default research config. Το keep_alive ανανεώνεται και στις κανονικές αποφάσεις/post-mortems. Δεν αλλάζει το trading decision deadline των 120 s.
+- Νέο ασύγχρονο κουμπί «Έλεγχος AI»: φόρτωση, πραγματικό schema validation με τεχνητό context, measured latency και προαιρετικό `/api/ps` memory/VRAM snapshot. Καμία πρόσβαση σε λογαριασμό/θέση, καμία λήψη βαρών. Αμοιβαίος αποκλεισμός με PAPER start/active PAPER.
+- Καταστάσεις WARMING_UP / RETRY_WAIT / EXPIRED / CANCELLED, σαφέστερα ελληνικά μηνύματα και καθαρισμός παλιού model_error στην επόμενη υποβολή. Το ONLINE περιγράφει ρητά τη ροή τιμών, όχι επιτυχή inference.
+- Ο worker παραμένει μη διαθέσιμος στο μικρό διάστημα dequeue/busy μέσω unfinished task tracking, ώστε η προφόρτωση να μην καταναλώνει κατά λάθος το deadline μιας ήδη queued απόφασης.
+- Δεν έχει τεκμηριωθεί η αιτία στο πραγματικό PC μόνο από τη φωτογραφία: πρόκειται για localhost Ollama ReadTimeout, όχι απόδειξη κακής μορφής JSON ή βλάβης στρατηγικής. Η πιθανή ψυχρή φόρτωση χρειάζεται επιβεβαίωση με τον νέο έλεγχο.
 ## Σύνδεσμος live dashboard στα Windows — 2026-10-17
 
 - Διόρθωση του κρυμμένου κουμπιού «Άνοιγμα live dashboard» όταν το PAPER εκτελείται από Windows virtual environment. Ο launcher της Python μπορεί να έχει διαφορετικό PID από την πραγματική διεργασία PAPER. Η διεύθυνση διαβάζεται από το μοναδικό αρχείο ετοιμότητας της συγκεκριμένης εκκίνησης, όσο ο launcher παραμένει ενεργός.

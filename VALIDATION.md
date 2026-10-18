@@ -1,4 +1,16 @@
-# Validation — 2026-10-17
+# Validation — 2026-10-18
+
+## Προφόρτωση / διάγνωση PAPER Ollama ReadTimeout — 2026-10-18
+
+- Τελική regression suite: **332 passed, 1 deselected σε 67.69 s**. Εξαιρέθηκε το αμετάβλητο ετήσιο stress test. Ruff check/format πέρασαν για 73 Python αρχεία, και `git diff --check` πέρασε.
+- Η φωτογραφία εξετάστηκε σε σωστό προσανατολισμό: `ReadTimeout: HTTPConnectionPool(host='localhost', port=11434)` με περίπου 31,59 s read timeout. Δεν αποδεικνύει ότι το πρώτο αίτημα είχε budget 31 s ούτε ότι η αιτία ήταν GPU, RAM ή cold load. Το ONLINE δείχνει ανανέωση τιμών ενώ το AI δεν έχει ολοκληρώσει έγκυρη απόφαση.
+- Επιβεβαιώθηκε από τις επίσημες οδηγίες Ollama το default 5-minute unload και η υποστήριξη preload μέσω empty generate request / keep_alive. Η νέα PAPER εκκίνηση προφορτώνει σε background worker και ζητά keep_alive 7200 s. Οι κανονικές αποφάσεις διατηρούν το ίδιο deadline 120 s. Το research config παραμένει σε keep_alive 300 s.
+- Τα tests καλύπτουν load request χωρίς decision prompt, κλειστό response, απόρριψη incomplete/error loading, κατανάλωση WARMUP σε κανονικό loop και αποτυχίες quote/indicators χωρίς μετατροπή σε θέση/lesson, και stop που κλείνει κανονικά όσο το warmup είναι μπλοκαρισμένο.
+- Ελέγχθηκε η μικρή dequeue/busy race με unfinished task tracking. Η δοκιμή startup/handoff επεκτάθηκε ώστε να επιβεβαιώνει WARMUP μετά το worker.start και το PAPER keep_alive 7200.
+- Πραγματικό loopback HTTP για diagnostic: φόρτωση → strict schema decision με τεχνητά δεδομένα → `/api/ps` telemetry, χωρίς λήψη ή άνοιγμα λογαριασμού. Tests async UI job, αμοιβαίου αποκλεισμού με PAPER και ακύρωσης πριν από inference πέρασαν.
+- Luna read-only review εντόπισε και διορθώθηκε το retry-status cancellation path: κλείσιμο θέσης κατά το backoff δεν αφήνει RETRY_WAIT στο dashboard. Νέα υποβολή καθαρίζει παλιό error· expiry/cancellation έχουν ρητές καταστάσεις.
+- Browser έλεγχος σε ξεχωριστό προσωρινό control root: click «Έλεγχος AI», επιτυχής εμφάνιση χρόνων και memory/VRAM από ελεγχόμενο stub. Οι αριθμοί προεπισκόπησης **δεν είναι πραγματικές μετρήσεις Qwen ή του PC του φίλου**. Screenshot: `E:\temp\quantbot-ai-check-preview.png`. Ο προσωρινός server και η προσωρινή καρτέλα έκλεισαν.
+- Δεν εκκινήθηκε πραγματικός PAPER λογαριασμός, δεν έγινε λήψη μοντέλου ή πραγματική Qwen inference. Η συγκεκριμένη αιτία στο PC του φίλου παραμένει ανεπιβεβαίωτη μέχρι να εκτελέσει τον νέο έλεγχο. Το keep_alive μπορεί να παρακαμφθεί από eviction/memory pressure του Ollama και το socket timeout δεν αποτελεί hard wall-clock cancellation.
 
 ## Επαναλήψεις PAPER και παραλλαγές στρατηγικής — 2026-10-17
 

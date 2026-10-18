@@ -229,6 +229,8 @@ def test_retry_is_discarded_when_position_revision_changes(config, engine):
     assert worker.jobs == []
     assert runner.retry_state is None
     assert engine.store.decision_history()[-1]["reason_code"] == "POSITION_CHANGED"
+    assert engine.snapshot()["system"]["model_status"] == "CANCELLED"
+    assert engine.snapshot()["system"].get("model_error") is None
 
 
 def test_new_candle_starts_a_fresh_submission_budget(config, engine):

@@ -106,6 +106,7 @@ class Control:
         self.closed = False
         self.server = None
         self.report_cache = {}
+        self.model_check_result = None
 
     def report_html(self, directory):
         from .research.presentation import saved_comparison_html
@@ -220,6 +221,7 @@ class Control:
                 "job": {**copy.deepcopy(self.job), "logs": list(self.logs)},
                 "models": models,
                 "ollama": ollama,
+                "model_check": copy.deepcopy(self.model_check_result),
                 "results": self.results(),
                 "defaults": {
                     "year": today.year - 1,
@@ -237,6 +239,8 @@ class Control:
         with self.lock:
             if self.paper is not None and self.paper.poll() is None:
                 raise ValueError("Το paper bot λειτουργεί ήδη.")
+            if self.job["running"] and self.job.get("kind") == "model_check":
+                raise ValueError("Περιμένετε να ολοκληρωθεί ο έλεγχος AI.")
             ident = uuid.uuid4().hex
             self.paper_stop = self.runtime / f"paper-{ident}.stop"
             self.paper_info = self.runtime / f"paper-{ident}.json"
@@ -430,6 +434,13 @@ class Control:
                     self.stage(text)
 
     def start_job(self, payload):
+        if payload["action"] == "model_check":
+            model = payload.get("model")
+            _, models = self.ollama()
+            if not isinstance(model, str) or model not in [item["name"] for item in models]:
+                raise ValueError("Επιλέξτε εγκατεστημένο μοντέλο PAPER για τον έλεγχο AI.")
+            if model.endswith(":cloud"):
+                raise ValueError("Ο έλεγχος αυτός απαιτεί τοπικό μοντέλο, όχι cloud tag.")
         if payload["action"] == "backtest":
             _, _, interval = parse_range(payload)
             parse_settings(payload)
@@ -447,26 +458,51 @@ class Control:
         with self.lock:
             if self.closed or self.job["running"]:
                 raise ValueError("Περιμένετε να ολοκληρωθεί ή ακυρώστε την τρέχουσα εργασία.")
+            if payload["action"] == "model_check" and self.paper is not None and self.paper.poll() is None:
+                raise ValueError(
+                    "Ο έλεγχος AI γίνεται πριν από την εκκίνηση PAPER, ώστε να μη μοιράζονται τον χρόνο του μοντέλου."
+                )
             ident = datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:8]
             self.cancel.clear()
             self.logs.clear()
             self.job = {
+                "kind": payload["action"],
                 "running": True,
                 "id": ident,
                 "stage": "Προετοιμασία",
                 "error": None,
                 "report_url": None,
             }
+            if payload["action"] == "model_check":
+                self.model_check_result = None
 
         def work():
             try:
                 if payload["action"] == "model_pull":
                     self.pull_model(payload["name"])
                     self.stage("Το μοντέλο είναι διαθέσιμο για επιλογή")
+                elif payload["action"] == "model_check":
+                    from .diagnostics import check_model
+
+                    result = check_model(
+                        Config(model=payload["model"], model_keep_alive_seconds=7200),
+                        stage=self.stage,
+                        cancelled=self.cancel.is_set,
+                    )
+                    with self.lock:
+                        self.model_check_result = {
+                            **result,
+                            "checked_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                    self.stage(
+                        f"Έλεγχος AI επιτυχής — έγκυρη απόφαση σε {result['decision_seconds']:.1f} δευτερόλεπτα"
+                    )
                 else:
                     self.research_job(payload, ident)
             except Exception as exc:
                 with self.lock:
+                    if payload["action"] == "model_check":
+                        self.model_check_result = {"model": payload["model"], "ok": False, "error": str(exc)}
                     self.job["error"] = str(exc)
                     self.job["stage"] = "Ακυρώθηκε" if self.cancel.is_set() else "Αποτυχία"
                 incomplete = self.root / "research-runs" / ident
@@ -500,7 +536,7 @@ class Control:
 
     def action(self, payload):
         action = payload.get("action")
-        if action in ("demo", "backtest", "model_pull"):
+        if action in ("demo", "backtest", "model_pull", "model_check"):
             self.start_job(payload)
         elif action == "paper_start":
             self.paper_start(payload)

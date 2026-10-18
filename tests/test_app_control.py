@@ -58,6 +58,11 @@ def test_control_stop_file_requests_normal_shutdown_and_ready_handoff_is_atomic(
         def start(self):
             observed["worker_started"] = True
 
+        def submit(self, job):
+            assert observed["worker_started"]
+            observed["warmup_job"] = job
+            return True
+
         def close(self):
             observed["worker_closed"] = True
 
@@ -118,6 +123,8 @@ def test_control_stop_file_requests_normal_shutdown_and_ready_handoff_is_atomic(
 
     assert observed["model"] == "installed-model:tag"
     assert observed["worker_started"] is True
+    assert observed["warmup_job"].kind == "WARMUP"
+    assert observed["store_config"].model_keep_alive_seconds == 7200
     assert observed["worker_closed"] is True
     assert observed["server_closed"] is True
     assert observed["store_closed"] is True

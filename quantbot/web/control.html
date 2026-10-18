@@ -224,7 +224,7 @@
             </details>
           </div>
           <div id="job-error" class="error-box" role="alert"></div>
-          <p class="hint">Η ακύρωση σταματά μόνο το backtest. Δεν κλείνει ούτε αλλάζει ανοιχτές θέσεις της PAPER λειτουργίας.</p>
+          <p class="hint">Η ακύρωση αφορά την τρέχουσα εργασία, χωρίς να κλείνει ή να αλλάζει θέσεις PAPER. Στον έλεγχο AI σταματά τα επόμενα βήματα μετά την τρέχουσα HTTP κλήση· δεν τερματίζει το Ollama.</p>
           <p class="hint">Στη λήψη μοντέλου ακυρώνεται η αναμονή· η υπηρεσία Ollama ενδέχεται να συνεχίσει τη λήψη.</p>
           <div class="divider"></div>
           <h3>Προηγούμενες αναφορές</h3>
@@ -242,6 +242,9 @@
           </div>
           <h3 style="margin-top:15px">Εγκατεστημένα μοντέλα</h3>
           <ul id="models-list" class="model-list"><li class="empty">Φόρτωση μοντέλων…</li></ul>
+          <div class="button-row" style="margin-top:12px"><button id="model-check" class="button secondary" type="button" data-action="model_check">Έλεγχος AI</button></div>
+          <p class="hint">Ελέγχει το επιλεγμένο μοντέλο PAPER: φόρτωση, έγκυρη απάντηση και χρόνο απόκρισης. Δεν ανοίγει θέση. Διατίθεται πριν ξεκινήσει το PAPER και μπορεί να χρειαστεί αρκετά λεπτά στην πρώτη φόρτωση.</p>
+          <p id="model-check-result" class="hint" role="status">Δεν έχει γίνει έλεγχος AI.</p>
           <div class="field" style="margin-top:17px">
             <label for="pull-model">Εγκατάσταση μοντέλου με ακριβές όνομα</label>
             <div class="button-row">
@@ -459,6 +462,20 @@
 
         const job = data?.job || {};
         const jobRunning = job.running === true;
+        $("model-check").disabled = state.busy || jobRunning || running;
+        if (jobRunning && job.kind === "model_check") $("paper-start").disabled = true;
+        const check = data.model_check;
+        if (check) {
+          let message = check.ok ? `${check.model}: έγκυρη απάντηση σε ${Number(check.decision_seconds).toFixed(1)} δευτ. · φόρτωση ${Number(check.warmup_seconds).toFixed(1)} δευτ.` : `${check.model}: ο έλεγχος απέτυχε. ${check.error || ''}`;
+          if (check.ok && check.memory) {
+            const memory = check.memory;
+            const gib = value => typeof value === 'number' ? (value / 1073741824).toFixed(1) + ' GB' : 'άγνωστο';
+            message += ` · Μνήμη μοντέλου ${gib(memory.size)}, VRAM ${gib(memory.size_vram)}`;
+          }
+          if (check.ok) message += ' · Δοκιμή λειτουργίας, όχι κερδοφορίας.';
+          if (check.ok && check.paper_budget_ok === false) message += ' Προσοχή: η απόκριση είναι οριακά αργή για τον κύκλο PAPER.';
+          text("model-check-result", message);
+        } else text("model-check-result", jobRunning && job.kind === "model_check" ? 'Ο έλεγχος AI εκτελείται…' : 'Δεν έχει γίνει έλεγχος AI.');
         ["demo", "model_pull"].forEach(action => document.querySelectorAll(`[data-action="${action}"]`).forEach(button => { button.disabled = state.busy || jobRunning; }));
         $("backtest-form").querySelector('button[type="submit"]').disabled = state.busy || jobRunning;
         setPill("job-pill", jobRunning ? "Σε εξέλιξη" : (job.error ? "Αποτυχία" : "Αναμονή"), jobRunning ? "warn" : (job.error ? "bad" : ""));
@@ -576,6 +593,8 @@
             const model = $("pull-model").value.trim();
             if (!model) { showError("form-error", "Γράψτε το ακριβές όνομα μοντέλου πριν από την εγκατάσταση."); return; }
             sendAction({ action, name: model });
+          } else if (action === "model_check") {
+            sendAction({action, model: $("paper-model").value});
           } else if (action === "paper_start") {
             try {
               sendAction({ action, model: $("paper-model").value, daily_loss_limit: optionalFraction("paper-daily"), max_account_drawdown: optionalFraction("paper-drawdown"), cooldown_seconds: Number($("paper-cooldown").value) });
