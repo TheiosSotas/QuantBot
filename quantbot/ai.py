@@ -17,6 +17,10 @@ from .models import DECISION_SCHEMA, Decision
 from .state import timestamp
 
 MAX_RESPONSE_BYTES = 262_144
+# A decision needs six small fields, not an open-ended reasoning transcript.
+# Explicit options override restrictive/very large inherited Modelfile defaults.
+DECISION_MAX_TOKENS = 512
+QWEN_DECISION_CONTEXT = 4096
 
 
 def _strict_json(text):
@@ -81,6 +85,10 @@ class ModelClient:
         self.config = config
         self.session = session or requests.Session()
 
+    def _is_qwen3(self):
+        family = self.config.model.rsplit("/", 1)[-1].split(":", 1)[0].lower()
+        return family in ("qwen3", "qwen3.5")
+
     def build_request(self, snapshot, portfolio):
         """Build the exact decision request without sending it.
 
@@ -102,7 +110,8 @@ class ModelClient:
                 "Return ONLY one JSON object with every required field and no extra fields. "
                 "confidence MUST be a JSON number from 0.0 to 1.0: use 0.75, never 75 or '75%'. "
                 "scale_in_signal MUST be the JSON boolean true or false, never a string or 0/1. "
-                "Keep thesis and copilot_commentary short."
+                "Each of thesis and copilot_commentary must be at most one short sentence, "
+                "under 160 characters. Do not include step-by-step explanations."
             ),
             "prompt": json.dumps(
                 {
@@ -117,6 +126,12 @@ class ModelClient:
             ),
             "options": {"temperature": 0},
         }
+        if self._is_qwen3():
+            # `think` is a TOP-LEVEL Ollama field, not a runtime option. Qwen
+            # otherwise may spend its whole token/time budget on hidden thinking.
+            request["think"] = False
+            request["options"]["num_predict"] = DECISION_MAX_TOKENS
+            request["options"]["num_ctx"] = QWEN_DECISION_CONTEXT
         # Ollama Cloud does not support schema-constrained generation. Keep the
         # schema in the prompt and enforce the same local validation and repair.
         if (
@@ -134,14 +149,19 @@ class ModelClient:
         """Load weights before starting a decision's freshness budget; never trade."""
         started = time.perf_counter()
         response = None
+        payload = {
+            "model": self.config.model,
+            "stream": False,
+            "keep_alive": self.config.model_keep_alive_seconds,
+        }
+        if self._is_qwen3():
+            # Preload the same context size used by decisions; changing it after
+            # warmup can force Ollama to reallocate/reload during the first job.
+            payload["options"] = {"num_ctx": QWEN_DECISION_CONTEXT}
         try:
             response = self.session.post(
                 self.config.ollama_url,
-                json={
-                    "model": self.config.model,
-                    "stream": False,
-                    "keep_alive": self.config.model_keep_alive_seconds,
-                },
+                json=payload,
                 timeout=(5, self.config.model_warmup_timeout),
                 stream=True,
             )
@@ -171,7 +191,7 @@ class ModelClient:
         if budget <= 0:
             raise requests.Timeout("AI decision deadline expired before inference")
         deadline = time.perf_counter() + budget
-        trace = {"policy": "strict-schema-one-repair-v2", "recovered": False, "attempts": []}
+        trace = {"policy": "strict-schema-one-repair-v3", "recovered": False, "attempts": []}
         last_error = "No valid model response"
         for attempt in (1, 2):
             if deadline - time.perf_counter() <= 0:
@@ -218,21 +238,34 @@ class ModelClient:
                     raise ValueError("Ollama response must contain a JSON response string")
                 if envelope.get("error"):
                     raise ValueError("Ollama returned an error instead of a completed decision")
-                if "done" in envelope and envelope["done"] is not True:
-                    raise ValueError("Ollama generation is incomplete")
-                if envelope.get("done_reason") not in (None, "stop"):
-                    raise ValueError(f"Ollama generation stopped unexpectedly: {envelope['done_reason']!r}")
                 raw = envelope["response"]
                 evidence["generation"] = {
                     "done_reason": envelope.get("done_reason"),
                     "has_thinking": bool(envelope.get("thinking")),
                     "response_characters": len(raw),
+                    "num_predict": request["options"].get("num_predict"),
+                    "think": request.get("think"),
                 }
+                for field in ("eval_count", "eval_duration", "prompt_eval_count", "load_duration"):
+                    value = envelope.get(field)
+                    if type(value) is int and value >= 0:
+                        evidence["generation"][field] = value
                 if len(raw.encode("utf-8")) > MAX_RESPONSE_BYTES:
                     raise ValueError("Model decision exceeds the allowed size")
                 evidence["response_text"] = raw[:12000]
                 evidence["response_sha256"] = hashlib.sha256(raw.encode()).hexdigest()
                 evidence["response_truncated_in_trace"] = len(raw) > 12000
+                if "done" in envelope and envelope["done"] is not True:
+                    raise ValueError("Ollama generation is incomplete")
+                if envelope.get("done_reason") == "length":
+                    raise ValueError(
+                        "Ollama token limit reached (done_reason=length); truncated decision rejected; "
+                        f"num_predict={request['options'].get('num_predict', 'model default')}, "
+                        f"eval_count={envelope.get('eval_count', 'unknown')}, "
+                        f"thinking_returned={bool(envelope.get('thinking'))}"
+                    )
+                if envelope.get("done_reason") not in (None, "stop"):
+                    raise ValueError(f"Ollama generation stopped unexpectedly: {envelope['done_reason']!r}")
                 if not raw.strip():
                     raise ValueError(
                         "Empty model response: no JSON decision returned"
