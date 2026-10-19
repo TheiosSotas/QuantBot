@@ -106,6 +106,7 @@ class Store:
             # Never restore an optimistic health status from a prior process.
             state["system"].update(
                 status="STARTING",
+                decision_interval_seconds=self.config.decision_interval_seconds,
                 model_status="IDLE",
                 error=None,
                 last_quote_at=None,

@@ -32,6 +32,9 @@ class Runner:
         self.pending_lesson = None
         self.latest_snapshot = None
 
+    def _decision_key(self, at, snapshot):
+        return self.config.decision_key(at, snapshot.candle_id)
+
     def _remember_loss(self, trade, snapshot):
         if trade and trade["pnl"] < 0:
             # Only a bounded, latest research request; no rule edits or extra exposure.
@@ -114,11 +117,11 @@ class Runner:
                 self.engine.health(
                     model_status="ERROR",
                     model_error=result.error,
-                    model_message="Το AI δεν έδωσε έγκυρη απόφαση. Αν δεν απομένει χρόνος για επανάληψη, περιμένουμε το επόμενο ωριαίο κερί. Οι τιμές και τα stop ελέγχονται ανεξάρτητα.",
+                    model_message="Το AI δεν έδωσε έγκυρη απόφαση. Η αιτία φαίνεται στον έλεγχο αποφάσεων. Νέα αξιολόγηση στον επόμενο κύκλο. Οι τιμές και τα stop ελέγχονται ανεξάρτητα.",
                 )
                 if result.job.kind == "DECISION":
                     retry = self.retry_state
-                    same_retry = retry is not None and retry["candle_id"] == result.job.snapshot.candle_id
+                    same_retry = retry is not None and retry["requested_at"] == result.job.requested_at
                     current_state = self.engine.snapshot()
                     can_retry = (
                         result.retryable
@@ -160,10 +163,7 @@ class Runner:
             if result.job.kind == "LESSON":
                 self.engine.add_lesson(result.value)
                 continue
-            if (
-                self.retry_state is not None
-                and self.retry_state["candle_id"] == result.job.snapshot.candle_id
-            ):
+            if self.retry_state is not None and self.retry_state["requested_at"] == result.job.requested_at:
                 self.retry_state = None
             before = self.engine.snapshot()
             outcome = self.engine.apply_decision(
@@ -188,6 +188,14 @@ class Runner:
                 self._remember_loss(after["trades"][0], snapshot)
         state = self.engine.snapshot()
         last = state["last_decision_candle"]
+        now = self.clock()
+        current_key = self._decision_key(now, snapshot)
+        last_request = state.get("last_decision_requested_at")
+        already_evaluated = (
+            last is not None and snapshot.candle_id <= last
+            if self.config.decision_interval_seconds == 3600
+            else last_request is not None and current_key <= self.config.decision_key(last_request, last)
+        )
         retry = self.retry_state
         if retry is not None and retry["candle_id"] != snapshot.candle_id:
             self.engine.health(
@@ -210,7 +218,7 @@ class Runner:
         if retry is not None and self.clock() >= retry["deadline"]:
             self.engine.health(
                 model_status="EXPIRED",
-                model_message="Έληξε ο χρόνος απόφασης AI. Εκπρόθεσμες απαντήσεις απορρίπτονται· νέα προσπάθεια στο επόμενο κερί.",
+                model_message="Έληξε ο χρόνος απόφασης AI. Εκπρόθεσμες απαντήσεις απορρίπτονται· νέα προσπάθεια στον επόμενο κύκλο αξιολόγησης.",
             )
             self.engine.audit_rejection(
                 "MODEL_ERROR",
@@ -227,7 +235,7 @@ class Runner:
         if retry is not None and time.monotonic() >= retry["deadline_monotonic"]:
             self.engine.health(
                 model_status="EXPIRED",
-                model_message="Έληξε ο χρόνος απόφασης AI. Εκπρόθεσμες απαντήσεις απορρίπτονται· νέα προσπάθεια στο επόμενο κερί.",
+                model_message="Έληξε ο χρόνος απόφασης AI. Εκπρόθεσμες απαντήσεις απορρίπτονται· νέα προσπάθεια στον επόμενο κύκλο αξιολόγησης.",
             )
             self.engine.audit_rejection(
                 "MODEL_ERROR",
@@ -245,7 +253,7 @@ class Runner:
             self.engine.health(
                 model_status="CANCELLED",
                 model_error=None,
-                model_message="Ακυρώθηκε η επανάληψη AI επειδή άλλαξε η θέση. Αναμονή επόμενου κεριού.",
+                model_message="Ακυρώθηκε η επανάληψη AI επειδή άλλαξε η θέση. Αναμονή επόμενου κύκλου αξιολόγησης.",
             )
             self.engine.audit_rejection(
                 "POSITION_CHANGED",
@@ -282,13 +290,14 @@ class Runner:
                 )
         elif retry is None and (
             self.worker.ready()
-            and self.last_requested_candle != snapshot.candle_id
-            and (last is None or snapshot.candle_id > last)
+            and self.last_requested_candle != current_key
+            and not already_evaluated
             and not state["system"].get("storage_error")
         ):
             # Quote and portfolio are current even when indicators came from the per-bar cache.
             current_snapshot = replace(snapshot, observed_at=quote.observed_at, current_price=quote.price)
-            deadline_monotonic = time.monotonic() + self.config.max_decision_age
+            budget = self.config.decision_budget(now)
+            deadline_monotonic = time.monotonic() + budget
             job = Job(
                 "DECISION",
                 current_snapshot,
@@ -298,13 +307,13 @@ class Runner:
                 deadline_monotonic=deadline_monotonic,
             )
             if self.worker.submit(job):
-                self.last_requested_candle = snapshot.candle_id
+                self.last_requested_candle = current_key
                 self.retry_state = {
                     "candle_id": snapshot.candle_id,
                     "snapshot": current_snapshot,
                     "requested_at": job.requested_at,
                     "revision": job.revision,
-                    "deadline": job.requested_at + self.config.max_decision_age,
+                    "deadline": job.requested_at + budget,
                     "deadline_monotonic": deadline_monotonic,
                     "submissions": 1,
                     "retry_at": None,
@@ -390,6 +399,12 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--no-browser", action="store_true")
     parser.add_argument("--model", default=Config().model, help="Installed local model name.")
+    parser.add_argument(
+        "--decision-interval",
+        choices=("1m", "5m"),
+        default="1m",
+        help="Decision cadence; indicator candles remain 1h.",
+    )
     parser.add_argument("--control-stop-file", type=Path)
     parser.add_argument("--control-heartbeat-file", type=Path)
     parser.add_argument("--control-ready-file", type=Path)
@@ -423,6 +438,7 @@ def main(argv=None):
         config = Config(
             data_dir=args.data_dir.resolve(),
             model=args.model,
+            decision_interval_seconds={"1m": 60, "5m": 300}[args.decision_interval],
             model_keep_alive_seconds=7200,
             daily_loss_limit=args.daily_loss_limit,
             max_account_drawdown=args.max_account_drawdown,

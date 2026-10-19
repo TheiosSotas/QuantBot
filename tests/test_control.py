@@ -233,15 +233,15 @@ def test_orphan_recovery_signals_only_private_paper_records(tmp_path):
     assert not (tmp_path / "quantbot.sqlite3").exists()
 
 
-def test_coarse_ai_run_is_rejected_before_launching_any_job(tmp_path):
+def test_invalid_decision_interval_is_rejected_before_launching_any_job(tmp_path):
     control = Control(tmp_path)
-    with pytest.raises(ValueError, match="AI"):
+    with pytest.raises(ValueError, match="1m"):
         control.start_job(
             {
                 "action": "backtest",
                 "start": "2025-01-01",
                 "end": "2026-01-01",
-                "interval": "5m",
+                "interval": "15m",
                 "model": "qwen2.5:14b",
             }
         )

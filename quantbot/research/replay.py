@@ -336,6 +336,8 @@ def run_replay(
     ):
         raise ValueError("Replay requires the configured symbol's 1h USDT-M dataset")
     bars = validate_execution_data(dataset, execution, start, end)
+    if execution.interval_ms > config.decision_interval_seconds * 1000:
+        raise ValueError("Execution data must be at least as fine as the decision interval")
     identity = advisor.identity()
     provider = identity
     while provider.get("provider") == "cached-advisor":
@@ -401,7 +403,8 @@ def run_replay(
                 except ValueError:
                     errors += 1  # Engine persists the precise invalid-input rejection.
             pending = None
-        if pending is None and index >= config.minimum_candles - 1 and latest != last_requested:
+        decision_key = config.decision_key(now, latest)
+        if pending is None and index >= config.minimum_candles - 1 and decision_key != last_requested:
             context = DecisionContext(
                 snapshot=make_snapshot(dataset, index, config, now, bar.open),
                 portfolio=copy.deepcopy(engine.state["portfolio"]),
@@ -462,7 +465,7 @@ def run_replay(
                 store.append_event("ADVICE", advice_row)
             else:
                 advice_rows.append(advice_row)
-            last_requested = latest
+            last_requested = decision_key
             if simulated_latency == 0:
                 if advice.error or advice.decision is None:
                     engine.audit_rejection(
@@ -561,6 +564,8 @@ def run_replay(
             "fill": "next observable execution-bar open at/after inference completion",
             "publication_delay_seconds": delay,
             "fixed_latency_seconds": fixed_latency_seconds,
+            "decision_interval_seconds": config.decision_interval_seconds,
+            "indicator_timeframe": config.timeframe,
             "ambiguity_policy": ambiguity_policy,
             "intrabar": "local OHLC/OLHC branch bound with threshold touches; times are assumed, not ticks",
             "global_worst_case_proven": False,

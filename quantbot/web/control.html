@@ -189,6 +189,9 @@
             <div id="paper-icon" class="state-icon" aria-hidden="true">Ⅱ</div>
             <div><strong id="paper-state-title">Η PAPER λειτουργία είναι σταματημένη</strong><span id="paper-state-copy">Εκκινήστε την όταν είστε έτοιμοι.</span></div>
           </div>
+          <label for="paper-interval">Νέα απόφαση κάθε</label>
+          <select id="paper-interval"><option value="1m">1 λεπτό</option><option value="5m">5 λεπτά</option></select>
+          <p class="hint">Κάθε αξιολόγηση χρησιμοποιεί νέα τιμή και την τρέχουσα θέση. Οι δείκτες βασίζονται σε κλεισμένα ωριαία κεριά. Τα stop ελέγχονται ανεξάρτητα ανά περίπου 5 δευτερόλεπτα.</p>
           <label for="paper-model">Μοντέλο PAPER · εφαρμόζεται στην επόμενη εκκίνηση</label>
           <select id="paper-model"><option value="qwen2.5:14b">qwen2.5:14b</option></select>
           <details style="margin:12px 0">
@@ -277,7 +280,7 @@
                 </div>
                 <p id="year-hint" class="hint">Το πλήρες έτος 2025 είναι ολοκληρωμένο. Το 2026 είναι τρέχον έτος και δεν θεωρείται πλήρες.</p>
               </div>
-              <div class="field"><label for="interval">Ανάλυση εκτέλεσης</label><select id="interval" name="interval"><option value="5m" selected>5 λεπτά · γρηγορότερο, χωρίς AI</option><option value="1m">1 λεπτό · για τελική σύγκριση και AI</option></select><p class="hint">5 λεπτά: αρχική δοκιμή χωρίς AI, με υπόθεση άμεσου υπολογισμού κανόνων. Για AI επιλέγεται αυτόματα 1 λεπτό και κρατιέται η πραγματική καθυστέρηση του μοντέλου.</p></div>
+              <div class="field"><label for="interval">Νέα απόφαση κάθε</label><select id="interval" name="interval"><option value="5m" selected>5 λεπτά</option><option value="1m">1 λεπτό</option></select><p class="hint">Με ή χωρίς AI: αξιολόγηση κάθε 1 ή 5 λεπτά με νέα τιμή και θέση, πάνω σε κλεισμένους ωριαίους δείκτες. Με AI, η εκτέλεση προσομοιώνεται πάντα με μονόλεπτα δεδομένα και μετρημένη καθυστέρηση.</p></div>
               <div class="field"><label for="model">Μοντέλο AI</label><select id="model" name="model"><option value="">Χωρίς AI · βασική σύγκριση</option></select><p class="hint">Προτεινόμενη σειρά: χωρίς AI → qwen2.5 → άλλο μοντέλο. Επιλέγονται μόνο μοντέλα που εμφανίζονται ήδη εγκατεστημένα.</p></div>
               <div class="field"><label for="starting-cash">Αρχικό κεφάλαιο (USDT)</label><input id="starting-cash" name="starting_cash" type="number" min="1" step="any" value="10000" required></div>
               <div class="field"><label for="cooldown">Παύση μετά από κλείσιμο (δευτ.)</label><input id="cooldown" name="cooldown_seconds" type="number" min="0" step="1" value="0" required></div>
@@ -581,9 +584,7 @@
         return percent / 100;
       }
       function modelResolution() {
-        const hasModel = !!$("model").value;
-        $("interval").querySelector('option[value="5m"]').disabled = hasModel;
-        if (hasModel) $("interval").value = "1m";
+        $("interval").querySelector('option[value="5m"]').disabled = false;
       }
       $("model").addEventListener("change", modelResolution);
       document.querySelectorAll("[data-action]").forEach((button) => {
@@ -594,10 +595,10 @@
             if (!model) { showError("form-error", "Γράψτε το ακριβές όνομα μοντέλου πριν από την εγκατάσταση."); return; }
             sendAction({ action, name: model });
           } else if (action === "model_check") {
-            sendAction({action, model: $("paper-model").value});
+            sendAction({action, model: $("paper-model").value, decision_interval: $("paper-interval").value});
           } else if (action === "paper_start") {
             try {
-              sendAction({ action, model: $("paper-model").value, daily_loss_limit: optionalFraction("paper-daily"), max_account_drawdown: optionalFraction("paper-drawdown"), cooldown_seconds: Number($("paper-cooldown").value) });
+              sendAction({ action, model: $("paper-model").value, decision_interval: $("paper-interval").value, daily_loss_limit: optionalFraction("paper-daily"), max_account_drawdown: optionalFraction("paper-drawdown"), cooldown_seconds: Number($("paper-cooldown").value) });
             } catch (error) { showError("paper-error", error.message); }
           } else sendAction({ action });
         });

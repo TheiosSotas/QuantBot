@@ -97,6 +97,8 @@ def test_cli_replay_runs_each_baseline_and_exports_a_complete_run(tmp_path, advi
                 str(output),
                 "--advisor",
                 advisor,
+                "--decision-interval",
+                "1h",  # This fixture intentionally has hourly-only execution data.
                 "--publication-delay-seconds",
                 "0",
                 "--fixed-latency-seconds",
@@ -121,6 +123,8 @@ def test_replay_only_ollama_needs_digest_and_cache_miss_writes_failed_report(tmp
     monkeypatch.setattr(OllamaAdvisor, "resolve_model_digest", forbidden_resolve)
     base = [
         "compare",
+        "--decision-interval",
+        "1h",
         "--data",
         str(data),
         "--execution-data",

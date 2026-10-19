@@ -17,6 +17,7 @@ def initial_state(config):
             "market_type": "BINANCE USDT-M FUTURES / PAPER",
             "symbol": config.symbol,
             "timeframe": config.timeframe,
+            "decision_interval_seconds": config.decision_interval_seconds,
             "last_update": "Starting up...",
             "last_quote_at": None,
             "last_protection_at": None,
@@ -56,6 +57,7 @@ def initial_state(config):
         "protections": initial_protections(),
         "position_revision": 0,
         "last_decision_candle": None,
+        "last_decision_requested_at": None,
         "trades": [],
         "copilot_feed": [],
         "lessons": [],
@@ -96,5 +98,7 @@ def validate_state(state):
         raise ValueError("Invalid saved revision")
     if state["last_decision_candle"] is not None and type(state["last_decision_candle"]) is not int:
         raise ValueError("Invalid saved candle")
+    if state.get("last_decision_requested_at") is not None:
+        finite_number(state["last_decision_requested_at"], "last decision timestamp", positive=True)
     if not all(isinstance(state[key], list) for key in ("trades", "lessons", "copilot_feed")):
         raise ValueError("Invalid saved history")

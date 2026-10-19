@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 import requests
 
@@ -86,7 +87,7 @@ class ModelClient:
         Research adapters use this to fingerprint the real prompt and options
         sent by ``consult``; keep the returned payload aligned with that call.
         """
-        return {
+        request = {
             "model": self.config.model,
             "stream": False,
             "keep_alive": self.config.model_keep_alive_seconds,
@@ -107,6 +108,7 @@ class ModelClient:
                 {
                     "symbol": self.config.symbol,
                     "timeframe": self.config.timeframe,
+                    "decision_interval_seconds": self.config.decision_interval_seconds,
                     "closed_candle_metrics": snapshot.as_dict(),
                     "portfolio": portfolio,
                     "output_schema": DECISION_SCHEMA,
@@ -115,6 +117,14 @@ class ModelClient:
             ),
             "options": {"temperature": 0},
         }
+        # Ollama Cloud does not support schema-constrained generation. Keep the
+        # schema in the prompt and enforce the same local validation and repair.
+        if (
+            self.config.model.endswith((":cloud", "-cloud"))
+            or urlsplit(self.config.ollama_url).hostname == "ollama.com"
+        ):
+            request.pop("format")
+        return request
 
     def consult(self, snapshot, portfolio, *, timeout_seconds=None):
         decision, _trace = self.consult_with_trace(snapshot, portfolio, timeout_seconds=timeout_seconds)
@@ -153,7 +163,7 @@ class ModelClient:
         """
         base = self.build_request(snapshot, portfolio)
         request = copy.deepcopy(base)
-        budget = self.config.model_timeout
+        budget = min(self.config.model_timeout, self.config.decision_budget(snapshot.observed_at))
         if timeout_seconds is not None:
             if not isinstance(timeout_seconds, (int, float)) or not math.isfinite(timeout_seconds):
                 raise ValueError("timeout_seconds must be finite")
@@ -213,12 +223,36 @@ class ModelClient:
                 if envelope.get("done_reason") not in (None, "stop"):
                     raise ValueError(f"Ollama generation stopped unexpectedly: {envelope['done_reason']!r}")
                 raw = envelope["response"]
+                evidence["generation"] = {
+                    "done_reason": envelope.get("done_reason"),
+                    "has_thinking": bool(envelope.get("thinking")),
+                    "response_characters": len(raw),
+                }
                 if len(raw.encode("utf-8")) > MAX_RESPONSE_BYTES:
                     raise ValueError("Model decision exceeds the allowed size")
                 evidence["response_text"] = raw[:12000]
                 evidence["response_sha256"] = hashlib.sha256(raw.encode()).hexdigest()
                 evidence["response_truncated_in_trace"] = len(raw) > 12000
-                decision = Decision.parse(_strict_json(raw))
+                if not raw.strip():
+                    raise ValueError(
+                        "Empty model response: no JSON decision returned"
+                        + (
+                            " (thinking was returned without a final answer)"
+                            if envelope.get("thinking")
+                            else ""
+                        )
+                    )
+                # A single fenced JSON document is an unambiguous transport
+                # wrapper. Narratives, extra objects and invalid types still fail.
+                document = raw.strip()
+                lines = document.splitlines()
+                if (
+                    len(lines) >= 3
+                    and lines[0].strip().lower() in ("```json", "```")
+                    and lines[-1].strip() == "```"
+                ):
+                    document = "\n".join(lines[1:-1])
+                decision = Decision.parse(_strict_json(document))
             except requests.RequestException as exc:
                 evidence.update(
                     validation="transport_error",

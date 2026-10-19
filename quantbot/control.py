@@ -232,6 +232,10 @@ class Control:
 
     def paper_start(self, payload):
         _, controls = parse_settings(payload)
+        interval = payload.get("decision_interval", "1m")
+        if interval not in ("1m", "5m"):
+            raise ValueError("Η συχνότητα αποφάσεων πρέπει να είναι 1m ή 5m.")
+        controls += ["--decision-interval", interval]
         model = payload.get("model") or "qwen2.5:14b"
         _, models = self.ollama()
         if model not in [item["name"] for item in models]:
@@ -339,18 +343,15 @@ class Control:
             if type(experiments) is not bool:
                 raise ValueError("Η σύγκριση παραλλαγών πρέπει να είναι ενεργή ή ανενεργή.")
             if model:
-                if interval != "1m":
-                    raise ValueError(
-                        "Για AI επιλέξτε ανάλυση 1 λεπτού ώστε οι αποφάσεις να ελέγχονται πριν λήξουν."
-                    )
                 _, models = self.ollama()
                 if model not in [item["name"] for item in models]:
                     raise ValueError("Το επιλεγμένο μοντέλο δεν είναι διαθέσιμο στο Ollama.")
-            dataset = self.root / "research-datasets" / f"{start:%Y%m%d}-{end:%Y%m%d}-{interval}"
+            execution_interval = "1m" if model else interval
+            dataset = self.root / "research-datasets" / f"{start:%Y%m%d}-{end:%Y%m%d}-{execution_interval}"
             hourly, execution = dataset / "hourly", dataset / "execution"
             for resolution, since, target in (
                 ("1h", start - timedelta(hours=600), hourly),
-                (interval, start, execution),
+                (execution_interval, start, execution),
             ):
                 if target.exists():
                     self.stage(f"Έλεγχος αποθηκευμένων τιμών {resolution}")
@@ -381,6 +382,8 @@ class Control:
                 str(config.starting_cash),
                 "--baselines",
                 "rules,numeric",
+                "--decision-interval",
+                interval,
                 "--compact",
                 *controls,
             ]
@@ -388,7 +391,7 @@ class Control:
                 args += ["--model", model, "--cache", self.root / "research-cache"]
             if experiments:
                 args += ["--strategy-experiments"]
-            if interval == "5m":
+            if execution_interval == "5m":
                 # A nonzero latency would wait 5m, exceeding the live 120s limit.
                 # This explicit zero-compute-latency assumption is for rules only.
                 args += ["--fixed-latency-seconds", "0"]
@@ -439,8 +442,8 @@ class Control:
             _, models = self.ollama()
             if not isinstance(model, str) or model not in [item["name"] for item in models]:
                 raise ValueError("Επιλέξτε εγκατεστημένο μοντέλο PAPER για τον έλεγχο AI.")
-            if model.endswith(":cloud"):
-                raise ValueError("Ο έλεγχος αυτός απαιτεί τοπικό μοντέλο, όχι cloud tag.")
+            if payload.get("decision_interval", "1m") not in ("1m", "5m"):
+                raise ValueError("Η συχνότητα αποφάσεων πρέπει να είναι 1m ή 5m.")
         if payload["action"] == "backtest":
             _, _, interval = parse_range(payload)
             parse_settings(payload)
@@ -449,8 +452,6 @@ class Control:
             model = payload.get("model", "")
             if not isinstance(model, str) or len(model) > 200:
                 raise ValueError("Μη έγκυρο μοντέλο.")
-            if model and interval != "1m":
-                raise ValueError("Η δοκιμή με AI απαιτεί ανάλυση 1 λεπτού. Αλλάξτε την επιλογή ανάλυσης.")
         if payload["action"] == "model_pull":
             name = payload.get("name", "")
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_./:-]{0,150}", name):
@@ -485,7 +486,13 @@ class Control:
                     from .diagnostics import check_model
 
                     result = check_model(
-                        Config(model=payload["model"], model_keep_alive_seconds=7200),
+                        Config(
+                            model=payload["model"],
+                            model_keep_alive_seconds=7200,
+                            decision_interval_seconds={"1m": 60, "5m": 300}[
+                                payload.get("decision_interval", "1m")
+                            ],
+                        ),
                         stage=self.stage,
                         cancelled=self.cancel.is_set,
                     )

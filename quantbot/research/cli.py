@@ -45,6 +45,7 @@ def _config(args):
         cooldown_seconds=args.cooldown_seconds,
         ollama_url=args.ollama_url,
         model_timeout=args.model_timeout,
+        decision_interval_seconds={"1m": 60, "5m": 300, "1h": 3600}[args.decision_interval],
     )
 
 
@@ -156,6 +157,12 @@ def _experiment_arguments(parser):
     parser.add_argument("--model-digest", action="append", default=[])
     parser.add_argument("--ollama-url", default=Config().ollama_url)
     parser.add_argument("--model-timeout", type=float, default=Config().model_timeout)
+    parser.add_argument(
+        "--decision-interval",
+        choices=("1m", "5m", "1h"),
+        default="1m",
+        help="Decision cadence, independent of the 1h indicator dataset (1h for legacy replay)",
+    )
     parser.add_argument("--cache", type=Path)
     parser.add_argument("--cache-mode", choices=("readwrite", "replay-only"), default="readwrite")
     parser.add_argument("--chronos-revision", help="Optional pinned Chronos-2 weights revision")
@@ -185,6 +192,7 @@ def main(argv=None):
     demo = commands.add_parser("demo", help="Entirely offline synthetic-data comparison")
     demo.add_argument("--output", type=Path, required=True)
     demo.add_argument("--hours", type=int, default=12)
+    demo.add_argument("--decision-interval", choices=("1m", "5m", "1h"), default="1m")
     replay = commands.add_parser("replay", help="One baseline replay with the existing PaperEngine")
     _experiment_arguments(replay)
     replay.add_argument("--advisor", choices=("cash", "rules", "numeric"), default="rules")
@@ -240,7 +248,9 @@ def main(argv=None):
             compare(
                 hourly,
                 {"cash": CashAdvisor(), "rules": RulesAdvisor(), "numeric": NumericAdvisor()},
-                config=Config(),
+                config=Config(
+                    decision_interval_seconds={"1m": 60, "5m": 300, "1h": 3600}[args.decision_interval]
+                ),
                 execution_data=minute,
                 output=args.output / "comparison",
                 fixed_latency_seconds=0,

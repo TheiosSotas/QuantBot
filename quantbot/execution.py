@@ -250,6 +250,8 @@ class PaperEngine:
             raise
         if not 0 <= now - requested_at <= self.config.max_decision_age:
             return self._record_outcome("STALE_DECISION", "AI_DECISION_EXPIRED", context)
+        if now - requested_at > self.config.decision_budget(requested_at):
+            return self._record_outcome("STALE_DECISION", "AI_DECISION_EXPIRED", context)
         if snapshot.candle_id != latest_candle:
             return self._record_outcome("STALE_CANDLE", "STALE_CANDLE", context)
         if closed:
@@ -260,10 +262,19 @@ class PaperEngine:
             if revision != self.state["position_revision"]:
                 return self._record_outcome("POSITION_CHANGED", "POSITION_CHANGED", context)
             last = self.state["last_decision_candle"]
-            if last is not None and snapshot.candle_id <= last:
+            last_request = self.state.get("last_decision_requested_at")
+            duplicate = (
+                last is not None and snapshot.candle_id <= last
+                if self.config.decision_interval_seconds == 3600
+                else last_request is not None
+                and self.config.decision_key(requested_at, snapshot.candle_id)
+                <= self.config.decision_key(last_request, last)
+            )
+            if duplicate:
                 return self._record_outcome("ALREADY_EVALUATED", "DUPLICATE_CANDLE", context)
             candidate = copy.deepcopy(self.state)
             candidate["last_decision_candle"] = snapshot.candle_id
+            candidate["last_decision_requested_at"] = requested_at
             candidate["model"].update(
                 regime=decision.market_regime,
                 action=decision.action,

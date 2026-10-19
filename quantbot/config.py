@@ -6,6 +6,8 @@ from pathlib import Path
 class Config:
     symbol: str = "BTC/USDT:USDT"
     timeframe: str = "1h"
+    # 1h remains available for reproducing historical runs. The UI/CLI use 1m/5m.
+    decision_interval_seconds: int = 3600
     candle_limit: int = 1000
     minimum_candles: int = 600
     poll_seconds: float = 5.0
@@ -35,6 +37,12 @@ class Config:
     def __post_init__(self):
         import math
 
+        if type(self.decision_interval_seconds) is not int or self.decision_interval_seconds not in (
+            60,
+            300,
+            3600,
+        ):
+            raise ValueError("decision_interval_seconds must be 60, 300 or 3600")
         for name in ("scale_enabled", "confidence_gate_enabled"):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be a boolean")
@@ -90,3 +98,11 @@ class Config:
             raise ValueError("Invalid candle warmup")
         if type(self.max_tranches) is not int or self.max_tranches < 1:
             raise ValueError("max_tranches must be positive")
+
+    def decision_key(self, requested_at, candle_id):
+        if self.decision_interval_seconds == 3600:
+            return candle_id  # Legacy once-per-closed-candle replay.
+        return int(requested_at // self.decision_interval_seconds) * self.decision_interval_seconds
+
+    def decision_budget(self, requested_at):
+        return min(self.max_decision_age, self.decision_interval_seconds)

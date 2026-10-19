@@ -55,6 +55,7 @@ def decision_event(
         "observed_at": number(now),
         "requested_at": number(requested_at),
         "candle_id": integer(getattr(snapshot, "candle_id", None)),
+        "decision_interval_seconds": config.decision_interval_seconds,
         "action": clean(action) if isinstance(action, str) else None,
         "status": status,
         "reason_code": reason_code,

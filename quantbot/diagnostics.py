@@ -49,7 +49,8 @@ def check_model(config, *, client=None, stage=None, cancelled=None):
         "decision_seconds": elapsed,
         "repaired": trace["recovered"],
         "memory": None,
-        "paper_budget_ok": elapsed + config.poll_seconds < config.max_decision_age,
+        "decision_interval_seconds": config.decision_interval_seconds,
+        "paper_budget_ok": elapsed + config.poll_seconds < config.decision_budget(now),
         "note": "Έλεγχος λειτουργίας με τεχνητά δεδομένα. Δεν αξιολογεί κερδοφορία.",
     }
     try:

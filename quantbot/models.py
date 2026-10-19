@@ -66,7 +66,9 @@ class Decision:
         if not isinstance(value, dict):
             raise ValueError("Decision must be an object")
         if set(value) != set(DECISION_SCHEMA["properties"]):
-            raise ValueError("Decision fields must match the schema")
+            missing = sorted(set(DECISION_SCHEMA["properties"]) - set(value))
+            extra = sorted(set(value) - set(DECISION_SCHEMA["properties"]))
+            raise ValueError(f"Decision fields must match the schema; missing={missing}; extra={extra}")
         if value.get("action") not in ACTIONS or value.get("market_regime") not in REGIMES:
             raise ValueError("Invalid action or regime")
         errors = []

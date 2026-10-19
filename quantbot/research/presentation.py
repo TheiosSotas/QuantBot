@@ -66,6 +66,12 @@ def comparison_html(results, *, reference=None, saved=False):
             "Εκτέλεση στο επόμενο διαθέσιμο άνοιγμα κεριού μετά την απόφαση. "
             "Το PAPER ελέγχει περίπου ανά 5 δευτερόλεπτα· το replay δεν αναπαράγει ακριβώς αυτές τις τιμές ή καθυστερήσεις.</p>"
         )
+    cadence = first_result.get("config", {}).get("decision_interval_seconds", 3600)
+    timeframe = html.escape(str(first_result.get("config", {}).get("timeframe", "1h")))
+    note += (
+        f"<p class='muted'>Νέα απόφαση κάθε {_number(cadence) / 60:g} λεπτά · "
+        f"δείκτες από κλεισμένα κεριά {timeframe}. Κάθε κύκλος χρησιμοποιεί νέα τιμή και την τρέχουσα θέση.</p>"
+    )
     if any("__" in name for name in shown):
         note += (
             "<p class='muted'>Πειραματικές παραλλαγές: αλλάζει ένας κανόνας κάθε φορά. "
