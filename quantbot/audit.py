@@ -3,6 +3,8 @@
 import math
 from dataclasses import asdict, is_dataclass
 
+from .grounding import entry_facts
+
 
 def clean(value, depth=0):
     if depth > 4:
@@ -51,6 +53,10 @@ def decision_event(
         if is_dataclass(decision)
         else (decision.get("action") if isinstance(decision, dict) else None)
     )
+    try:
+        facts = entry_facts(snapshot, config) if snapshot is not None else None
+    except (AttributeError, ValueError, TypeError, ZeroDivisionError):
+        facts = None
     return {
         "observed_at": number(now),
         "requested_at": number(requested_at),
@@ -63,6 +69,7 @@ def decision_event(
         "model": config.model,
         "snapshot": clean(snapshot),
         "decision": clean(decision),
+        "strategy_facts": clean(facts),
         "quote_at": number(getattr(quote, "observed_at", None)),
         "execution_price": number(getattr(quote, "price", None)),
         "position_revision": integer(revision),

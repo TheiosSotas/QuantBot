@@ -21,7 +21,9 @@ def test_model_uses_schema_and_validates_response(config):
 
     model = ModelClient(config, SimpleNamespace(post=post))
     assert model.consult(snapshot(), {}).action == "BUY"
-    assert calls[0]["json"]["format"]["properties"]["scale_in_signal"] == {"type": "boolean"}
+    assert calls[0]["json"]["format"]["properties"]["scale_in_signal"] == {
+        "type": "boolean", "enum": [False]
+    }
     assert "MANDATORY HARD RULE" not in calls[0]["json"]["system"]
 
 

@@ -41,14 +41,20 @@ def test_malformed_http_ai_is_repaired_and_cached_with_complete_trace(tmp_path):
         def do_POST(self):
             calls["post"] += 1
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            corrected = "format_correction" in json.loads(payload["prompt"])
+            observations = json.loads(payload["prompt"])
+            corrected = "format_correction" in observations
+            facts = observations["verified_strategy_facts"]
+            candidate = facts["entry_candidate"]
             output = {
-                "action": "BUY",
+                "action": {"LONG": "BUY", "SHORT": "SELL", "NONE": "HOLD"}[candidate],
                 "confidence": 0.9 if corrected else 90,
                 "scale_in_signal": False if corrected else "false",
-                "market_regime": "TRENDING_BULL",
+                "market_regime": {
+                    "BULLISH": "TRENDING_BULL", "BEARISH": "TRENDING_BEAR", "MIXED": "CHOPPY_RANGE"
+                }[facts["ema_structure"]],
                 "thesis": "Protocol fixture",
                 "copilot_commentary": "",
+                "reason_code": "ENTRY_SIGNAL" if candidate != "NONE" else "NO_ENTRY_SETUP",
             }
             self.send_json({"response": json.dumps(output)})
 

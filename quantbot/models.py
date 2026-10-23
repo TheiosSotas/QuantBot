@@ -50,6 +50,15 @@ class Snapshot:
 
 REGIMES = ("TRENDING_BULL", "TRENDING_BEAR", "CHOPPY_RANGE", "VOLATILITY_EXPANSION")
 ACTIONS = ("BUY", "SELL", "HOLD", "CLOSE")
+DECISION_REASONS = (
+    "ENTRY_SIGNAL",
+    "NO_ENTRY_SETUP",
+    "MODEL_ABSTAIN",
+    "LOW_CONFIDENCE",
+    "POSITION_HOLD",
+    "SCALE_SIGNAL",
+    "EXIT_SIGNAL",
+)
 
 
 @dataclass(frozen=True)
@@ -60,17 +69,24 @@ class Decision:
     market_regime: str
     thesis: str = ""
     copilot_commentary: str = ""
+    reason_code: str = "LEGACY_UNSPECIFIED"
 
     @classmethod
     def parse(cls, value):
         if not isinstance(value, dict):
             raise ValueError("Decision must be an object")
-        if set(value) != set(DECISION_SCHEMA["properties"]):
-            missing = sorted(set(DECISION_SCHEMA["properties"]) - set(value))
-            extra = sorted(set(value) - set(DECISION_SCHEMA["properties"]))
+        # Historical decisions/caches have six fields. New model requests require
+        # a reason, while old records remain readable without inventing one.
+        required = set(DECISION_SCHEMA["properties"]) - {"reason_code"}
+        missing = sorted(required - set(value))
+        extra = sorted(set(value) - set(DECISION_SCHEMA["properties"]))
+        if missing or extra:
             raise ValueError(f"Decision fields must match the schema; missing={missing}; extra={extra}")
         if value.get("action") not in ACTIONS or value.get("market_regime") not in REGIMES:
             raise ValueError("Invalid action or regime")
+        reason = value.get("reason_code", "LEGACY_UNSPECIFIED")
+        if reason not in (*DECISION_REASONS, "LEGACY_UNSPECIFIED"):
+            raise ValueError("Invalid decision reason_code")
         errors = []
         try:
             confidence = finite_number(value.get("confidence"), "confidence")
@@ -95,6 +111,7 @@ class Decision:
             value["market_regime"],
             value.get("thesis", ""),
             value.get("copilot_commentary", ""),
+            reason,
         )
 
 
@@ -108,6 +125,10 @@ DECISION_SCHEMA = {
         "scale_in_signal": {"type": "boolean"},
         "thesis": {"type": "string", "maxLength": 4000},
         "copilot_commentary": {"type": "string", "maxLength": 4000},
+        "reason_code": {"type": "string", "enum": list(DECISION_REASONS)},
     },
-    "required": ["action", "market_regime", "confidence", "scale_in_signal", "thesis", "copilot_commentary"],
+    "required": [
+        "action", "market_regime", "confidence", "scale_in_signal", "thesis", "copilot_commentary",
+        "reason_code",
+    ],
 }

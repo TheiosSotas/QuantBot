@@ -303,6 +303,10 @@ class PaperEngine:
             outcome = "HOLD"
             reason = "NO_ACTION"
             status = "NO_ACTION"
+            if p["side"] == "FLAT" and decision.action == "HOLD" and decision.reason_code in (
+                "MODEL_ABSTAIN", "NO_ENTRY_SETUP", "LOW_CONFIDENCE"
+            ):
+                reason = decision.reason_code
             opposite = "SELL" if p["side"] == "LONG" else "BUY"
             close_confident = not self.config.confidence_gate_enabled or decision.confidence >= 0.75
             scale_confident = not self.config.confidence_gate_enabled or decision.confidence >= 0.8
